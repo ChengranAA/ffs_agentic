@@ -5,3 +5,7 @@ __pycache__/
 *.pyc
 .DS_Store
 .ffs-viewer.demo-backup/
+
+# real-data test downloads and pipeline work dirs
+data/real/
+work/
