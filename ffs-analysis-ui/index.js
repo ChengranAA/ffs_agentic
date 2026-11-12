@@ -517,6 +517,11 @@ function buildLiveSnapshot(state) {
   }
   if (view.running) notes.push('Run in progress; the flow and log update from the running script.')
   const settledRecord = readSettled()
+  const cohort = discoverCohort()
+  const groupAnalyses = readGroupState().analyses.map(groupSummaryRecord)
+  const groupStatus = groupAnalyses.length
+    ? 'ready'
+    : (cohort.included >= 2 ? 'ready-to-run' : 'not-ready')
 
   return {
     schema: 'ffs-analysis-live/1',
@@ -580,29 +585,16 @@ function buildLiveSnapshot(state) {
       figures,
     },
     results,
-    cohort: {
-      status: 'live',
-      note: 'One subject is planned at a time in this phase; cohort management lands with M4.',
-      total: 1,
-      included: 1,
-      variants: [state.params.recipe],
-      subjects: [{
-        id: subjectId,
-        include: true,
-        stages: {
-          stage02: view.stages.find((stage) => stage.name === 'stage02')?.status || 'pending',
-          stage10: view.stages.find((stage) => stage.name === 'stage10')?.status || 'pending',
-          firstLevel: view.stages.find((stage) => stage.name === 'stage12')?.status || 'pending',
-          qc: figures.length ? 'done' : 'pending',
-        },
-        variants: [state.params.recipe],
-        note: view.status,
-      }],
-    },
+    cohort,
     group: {
-      status: 'not-ready',
-      note: 'Group analyses need a cohort (M4/M5).',
-      analyses: [],
+      status: groupStatus,
+      note: groupAnalyses.length
+        ? `${groupAnalyses.length} group analysis${groupAnalyses.length === 1 ? '' : 'es'} from ${cohort.included} subjects.`
+        : (cohort.included >= 2
+          ? 'Cohort ready: run a one-sample 3dMEMA on a first-level contrast.'
+          : 'Run at least two subjects to enable the group level.'),
+      cohort,
+      analyses: groupAnalyses,
     },
     provenance: {
       settled: Boolean(settledRecord),
@@ -685,6 +677,24 @@ function snapshotSummary() {
       threshold: snapshot.results?.threshold ?? null,
     },
     provenance: snapshot.provenance ?? null,
+    cohort: {
+      total: snapshot.cohort?.total ?? 0,
+      included: snapshot.cohort?.included ?? 0,
+      status: snapshot.cohort?.status ?? null,
+    },
+    group: {
+      status: snapshot.group?.status ?? null,
+      analyses: Array.isArray(snapshot.group?.analyses)
+        ? snapshot.group.analyses.map((analysis) => ({
+          id: analysis.id,
+          contrast: analysis.contrast,
+          engine: analysis.engine,
+          n: analysis.n,
+          status: analysis.status,
+          clusters: Array.isArray(analysis.clusters) ? analysis.clusters.length : 0,
+        }))
+        : [],
+    },
     groupAnalyses: Array.isArray(snapshot.group?.analyses) ? snapshot.group.analyses.length : 0,
     fixture: FIXTURE_FILE,
     state: PROJECT_STATE_FILE,
@@ -731,7 +741,9 @@ function autoprocArgs(params) {
 function ffsEnv() {
   const env = { ...process.env }
   const shimDir = path.join(PROJECT_ROOT, 'work', 'bin')
-  if (existsSync(shimDir)) env.PATH = `${shimDir}${path.delimiter}${env.PATH || ''}`
+  const afniBin = path.join(process.env.HOME || '', 'abin')
+  const prefixes = [shimDir, afniBin].filter((dir) => dir && existsSync(dir))
+  if (prefixes.length) env.PATH = `${prefixes.join(path.delimiter)}${path.delimiter}${env.PATH || ''}`
   env.MPLCONFIGDIR = env.MPLCONFIGDIR || path.join(PROJECT_ROOT, 'work', '.mpl')
   try {
     mkdirSync(env.MPLCONFIGDIR, { recursive: true })
@@ -1332,6 +1344,210 @@ echo "doctor: ok"
   }
 }
 
+// ------------------------------------------------------------------ cohort / group
+const COHORT_ROOT = path.join(PROJECT_ROOT, 'work', 'ds005165')
+const GROUP_STATE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-analysis-group.json')
+
+function discoverCohort() {
+  const cohort = {
+    root: path.relative(PROJECT_ROOT, COHORT_ROOT),
+    status: 'empty',
+    total: 0,
+    included: 0,
+    subjects: [],
+    note: 'Run at least two subjects to enable a group analysis.',
+  }
+  if (!existsSync(COHORT_ROOT)) return cohort
+  const bySubject = new Map()
+  for (const entry of readdirSync(COHORT_ROOT, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const workAbs = path.join(COHORT_ROOT, entry.name)
+    let files = []
+    try {
+      files = readdirSync(workAbs)
+    } catch {
+      continue
+    }
+    for (const scriptName of files.filter((name) => /^proc_sub-.+\.sh$/.test(name))) {
+      const subject = scriptName.replace(/^proc_sub-/, '').replace(/\.sh$/, '')
+      const statsName = files.find((name) => /^stage12\.stats-reml\..*\.nii\.gz$/.test(name) && !/ffsremlvar/.test(name))
+      const meanName = files.find((name) => /_mean\.nii\.gz$/.test(name))
+      const statsAbs = statsName ? path.join(workAbs, statsName) : null
+      let statsMtime = 0
+      try {
+        if (statsAbs) statsMtime = statSync(statsAbs).mtimeMs
+      } catch { /* skip */ }
+      const record = {
+        id: `sub-${subject}`,
+        subject,
+        workDir: path.relative(PROJECT_ROOT, workAbs),
+        script: path.relative(PROJECT_ROOT, path.join(workAbs, scriptName)),
+        log: path.relative(PROJECT_ROOT, path.join(workAbs, scriptName.replace(/\.sh$/, '.log'))),
+        stats: statsAbs ? path.relative(PROJECT_ROOT, statsAbs) : null,
+        mean: meanName ? path.relative(PROJECT_ROOT, path.join(workAbs, meanName)) : null,
+        statsMtime,
+        include: true,
+        status: statsAbs ? 'completed' : 'planned',
+        variants: [entry.name === `sub-${subject}` ? 'canonical' : entry.name],
+      }
+      const previous = bySubject.get(subject)
+      if (!previous || record.statsMtime > previous.statsMtime) bySubject.set(subject, record)
+    }
+  }
+  const subjects = [...bySubject.values()].sort((a, b) => a.subject.localeCompare(b.subject))
+  cohort.subjects = subjects
+  cohort.total = subjects.length
+  cohort.included = subjects.filter((subject) => subject.stats).length
+  cohort.status = subjects.length ? (cohort.included >= 2 ? 'ready' : 'single-subject') : 'empty'
+  if (cohort.included >= 2) cohort.note = `${cohort.included} subjects with a first-level fit; 3dMEMA can run.`
+  return cohort
+}
+
+function readGroupState() {
+  try {
+    if (existsSync(GROUP_STATE_FILE)) {
+      const data = JSON.parse(readFileSync(GROUP_STATE_FILE, 'utf8'))
+      if (Array.isArray(data.analyses)) return data
+    }
+  } catch { /* fall through */ }
+  return { analyses: [] }
+}
+
+function writeGroupState(state) {
+  mkdirSync(path.dirname(GROUP_STATE_FILE), { recursive: true })
+  writeFileSync(GROUP_STATE_FILE, `${JSON.stringify(state, null, 2)}\n`)
+  return state
+}
+
+function groupSummaryRecord(analysis) {
+  const workAbs = resolveInside(analysis.workDir, 'group work dir')
+  const bucketAbs = resolveInside(analysis.bucket, 'group bucket')
+  const summary = ensureResults(workAbs, bucketAbs)
+  if (summary.error) {
+    return { ...analysis, status: 'failed', error: summary.error, contrasts: [], clusters: [] }
+  }
+  const threshold = summary.threshold
+  const contrasts = (summary.contrasts || []).map((contrast) => ({
+    id: contrast.name,
+    name: contrast.name,
+    subBrick: contrast.subBrick,
+    subBrickIndex: contrast.index,
+    stat: 't',
+    peak: contrast.peakT,
+    peakIJK: contrast.peakIJK,
+    peakMM: contrast.peakMM,
+    threshold,
+  }))
+  const clusters = (summary.contrasts || []).flatMap((contrast) => (contrast.clusters || []).map((cluster) => ({
+    id: `${contrast.name}.${cluster.ijk.join('_')}`,
+    contrast: contrast.name,
+    subBrick: contrast.subBrick,
+    subBrickIndex: contrast.index,
+    threshold,
+    ...cluster,
+  }))).slice(0, 40)
+  return {
+    ...analysis,
+    status: 'completed',
+    threshold,
+    voxels: summary.voxels,
+    contrasts,
+    clusters,
+    statsPath: bucketAbs,
+    meanPath: analysis.mean ? resolveInside(analysis.mean, 'group mean') : null,
+  }
+}
+
+function runGroupAnalysis(params = {}) {
+  const cohort = discoverCohort()
+  const subjects = cohort.subjects.filter((subject) => subject.stats)
+  if (subjects.length < 2) {
+    throw Object.assign(new Error('need at least two completed subjects for 3dMEMA'), { code: 'cohort-too-small' })
+  }
+  const contrast = String(params.contrast || 'scenes')
+  const picks = []
+  for (const subject of subjects) {
+    const statsAbs = resolveInside(subject.stats, 'stats')
+    const summary = ensureResults(resolveInside(subject.workDir, 'work'), statsAbs)
+    if (summary.error) throw new Error(`cannot read ${subject.id}: ${summary.error}`)
+    const labels = summary.subBricks || []
+    const coefIndex = labels.indexOf(`${contrast}#0_Coef`)
+    const tIndex = labels.indexOf(`${contrast}#0_Tstat`)
+    if (coefIndex < 0 || tIndex < 0) {
+      throw Object.assign(new Error(`${contrast} not found in ${subject.id}`), { code: 'contrast-missing' })
+    }
+    picks.push({ subject, statsAbs, coefIndex, tIndex })
+  }
+  const id = `group-${contrast}`
+  const workAbs = path.join(COHORT_ROOT, id)
+  mkdirSync(workAbs, { recursive: true })
+  const prefix = path.join(workAbs, `${id}.nii.gz`)
+  const env = ffsEnv()
+  const firstMean = subjects.map((subject) => subject.mean).find(Boolean)
+  const master = firstMean ? resolveInside(firstMean, 'mean') : picks[0].statsAbs
+  let mask = null
+  if (firstMean) {
+    const candidate = path.join(workAbs, 'group_mask.nii.gz')
+    try {
+      execFileSync('3dAutomask', ['-prefix', candidate, '-dilate', '2', master], {
+        cwd: PROJECT_ROOT, env, timeout: 120000, stdio: 'pipe',
+      })
+      mask = candidate
+    } catch { mask = null }
+  }
+  // Subjects keep their own native EPI grids in the bare-bones recipe; resample each
+  // contrast to one common grid before the group fit. (MNI-space pipelines share a grid.)
+  const resampled = picks.map((pick) => {
+    const coefOut = path.join(workAbs, `${pick.subject.id}_${contrast}_coef.nii.gz`)
+    const tstatOut = path.join(workAbs, `${pick.subject.id}_${contrast}_tstat.nii.gz`)
+    try {
+      execFileSync('3dresample', [
+        '-overwrite', '-master', master,
+        '-input', `${pick.statsAbs}[${pick.coefIndex}]`, '-prefix', coefOut,
+      ], { cwd: PROJECT_ROOT, env, timeout: 180000, stdio: 'pipe' })
+      execFileSync('3dresample', [
+        '-overwrite', '-master', master,
+        '-input', `${pick.statsAbs}[${pick.tIndex}]`, '-prefix', tstatOut,
+      ], { cwd: PROJECT_ROOT, env, timeout: 180000, stdio: 'pipe' })
+    } catch (error) {
+      const stderr = error && error.stderr ? String(error.stderr) : ''
+      throw Object.assign(new Error(`3dresample failed for ${pick.subject.id}: ${stderr.split('\\n').filter(Boolean).slice(-2).join(' ')}`), { code: 'group-failed' })
+    }
+    return { ...pick, coefOut, tstatOut }
+  })
+  const args = ['-prefix', prefix]
+  if (mask) args.push('-mask', mask)
+  args.push('-set', contrast)
+  for (const pick of resampled) {
+    args.push(pick.subject.id, pick.coefOut, pick.tstatOut)
+  }
+  args.push('-jobs', '2', '-model_outliers')
+  try {
+    execFileSync('3dMEMA', args, { cwd: PROJECT_ROOT, env, timeout: 900000, stdio: 'pipe' })
+  } catch (error) {
+    const stderr = error && error.stderr ? String(error.stderr) : ''
+    const detail = stderr.split('\n').filter(Boolean).slice(-3).join(' ') || (error && error.message) || 'unknown error'
+    throw Object.assign(new Error(`3dMEMA failed: ${detail}`), { code: 'group-failed' })
+  }
+  const record = {
+    id,
+    contrast,
+    engine: '3dMEMA',
+    design: 'one-sample',
+    n: picks.length,
+    at: new Date().toISOString(),
+    workDir: path.relative(PROJECT_ROOT, workAbs),
+    bucket: path.relative(PROJECT_ROOT, prefix),
+    mask: mask ? path.relative(PROJECT_ROOT, mask) : null,
+    space: 'native-common-grid',
+    mean: firstMean || null,
+  }
+  const state = readGroupState()
+  state.analyses = state.analyses.filter((item) => item.id !== id).concat(record)
+  writeGroupState(state)
+  return groupSummaryRecord(record)
+}
+
 // ------------------------------------------------------------------ transport
 function writeJson(res, status, value) {
   const body = JSON.stringify(value)
@@ -1465,6 +1681,41 @@ export function apply(ctx) {
   }), 'ffs-analysis: cancel tool')
 
   ctx.effect(() => ctx.tools.register({
+    name: 'ffs_analysis_group',
+    description: [
+      'Run a one-sample group analysis with AFNI 3dMEMA across every completed subject',
+      'discovered under work/ds005165, using that contrast\'s Coef and Tstat sub-bricks',
+      'from each subject\'s REML bucket. Requires at least two subjects.',
+    ].join('\n'),
+    parameters: {
+      type: 'object',
+      properties: {
+        contrast: {
+          type: 'string',
+          description: 'First-level contrast name without suffixes (default "scenes").',
+        },
+      },
+      required: [],
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    },
+    async execute(args) {
+      const record = runGroupAnalysis(args || {})
+      return JSON.stringify({
+        ok: true,
+        id: record.id,
+        contrast: record.contrast,
+        engine: record.engine,
+        n: record.n,
+        clusters: record.clusters.length,
+        status: record.status,
+      }, null, 1)
+    },
+  }), 'ffs-analysis: group tool')
+
+  ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_settle',
     description: [
       'Freeze the completed analysis into a settled record: plan, run times, artifacts with',
@@ -1572,6 +1823,20 @@ export function apply(ctx) {
         }
         try {
           writeJson(res, 200, cancelRun())
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'group') {
+        if (req.method !== 'POST') {
+          writeText(res, 405, 'method not allowed')
+          return
+        }
+        try {
+          const body = await readJsonBody(req)
+          writeJson(res, 200, { ok: true, ...runGroupAnalysis(body) })
         } catch (error) {
           routeError(res, error)
         }

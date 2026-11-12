@@ -20,8 +20,8 @@ snapshot built from the ds005165 run documented in
 | Data | artifact table with kind/stage/size, artifact detail with path and display hints, **Load in viewer** |
 | QC | QC figures (motion, tSNR, carpet) and the note about CPU-only QC on this Mac |
 | Results | live contrasts and peaks from the GLM bucket, cluster table at t ≥ 3.1, **Inspect in viewer** |
-| Cohort | subject matrix (one row in this fixture), stage dots, variants |
-| Group | group analysis card (draft; needs a real cohort) |
+| Cohort | auto-discovered subjects from work dirs: status, work dir, stats bucket |
+| Group | run one-sample 3dMEMA on a first-level contrast; cluster table and viewer hand-off |
 | Provenance | **Settle** / **Export package**, settled id, package path, script/log |
 
 ## Interactions
@@ -32,6 +32,8 @@ snapshot built from the ds005165 run documented in
   process, stdout/stderr stream into the script log, and the snapshot reports status,
   current stage, percent, per-stage wall times and the log tail. **Cancel** signals the
   process group. Run state (including `stageTimes`) lives in `work/ffs-analysis-run.json`.
+- **Run group analysis** posts to `/ffs-analysis/group`: 3dresample each subject's
+  Coef/Tstat to a common grid, automask, then AFNI 3dMEMA; results are cached and shown.
 - **Settle** posts to `/ffs-analysis/settle` after a completed run and freezes the analysis.
 - **Export package** posts to `/ffs-analysis/export` and writes a runnable package under
   `exports/` with STEPS/METHODS, frozen script/design/stimuli, tables, manifest and checksums.

@@ -93,6 +93,9 @@ window.__ModuleLoader__.load({
       export: 'Export package',
       exporting: 'Exporting…',
       exported: 'Package exported',
+      runGroup: 'Run group analysis',
+      groupRunning: 'Running 3dMEMA…',
+      groupFailed: 'Group analysis failed',
       exportFailed: 'Export failed',
       sourceLive: 'live',
       sourceFixture: 'fixture',
@@ -589,33 +592,41 @@ window.__ModuleLoader__.load({
     }
 
     function CohortSection({ snap, t }) {
-      const cohort = snap.cohort || {}
+      const cohort = snap.cohort || snap.group?.cohort || {}
       const subjects = Array.isArray(cohort.subjects) ? cohort.subjects : []
       return h(Card, { title: t('cohortNote'), subtitle: cohort.status || '' },
         h('div', { className: 'ffa-row ffa-small ffa-muted' },
-          h('span', null, `${cohort.total ?? subjects.length} total`),
-          h('span', null, `· ${cohort.included ?? subjects.length} included`),
-          (cohort.variants || []).map((variant) => h('span', { key: variant, className: 'ffa-tag' }, variant))),
-        cohort.note ? h('div', { className: 'ffa-small ffa-muted', style: { marginTop: 6 } }, cohort.note) : null,
+          h('span', null, `${cohort.total ?? subjects.length} subject(s)`),
+          h('span', null, `· ${cohort.included ?? '—'} with first-level fits`),
+          cohort.note ? h('span', null, `· ${cohort.note}`) : null),
         subjects.length
-          ? h('table', { className: 'ffa-table', style: { marginTop: 10 } },
+          ? h('table', { className: 'ffa-table', style: { marginTop: 8 } },
             h('thead', null, h('tr', null,
-              h('th', null, 'subject'), h('th', null, 'S02'), h('th', null, 'S10'), h('th', null, '1st level'), h('th', null, 'QC'), h('th', null, t('variants')))),
+              h('th', null, 'subject'), h('th', null, 'status'), h('th', null, 'work dir'), h('th', null, 'stats'))),
             h('tbody', null, subjects.map((subject) => h('tr', { key: subject.id },
               h('td', { className: 'ffa-name' }, subject.id),
-              h('td', null, h('span', { className: `ffa-dot is-${statusClass(subject.stages?.stage02)}`, title: subject.stages?.stage02 || '' })),
-              h('td', null, h('span', { className: `ffa-dot is-${statusClass(subject.stages?.stage10)}`, title: subject.stages?.stage10 || '' })),
-              h('td', null, h('span', { className: `ffa-dot is-${statusClass(subject.stages?.firstLevel)}`, title: subject.stages?.firstLevel || '' })),
-              h('td', null, h('span', { className: `ffa-dot is-${statusClass(subject.stages?.qc)}`, title: subject.stages?.qc || '' })),
-              h('td', null, (subject.variants || []).map((variant) => h('span', { key: variant, className: 'ffa-tag' }, variant)),
-                subject.note ? h('div', { className: 'ffa-small ffa-muted' }, subject.note) : null)))))
-          : h('div', { className: 'ffa-empty' }, 'No cohort yet.'))
+              h('td', null, h(StatusPill, { status: subject.status })),
+              h('td', { className: 'ffa-mono ffa-small' }, subject.workDir || '—'),
+              h('td', { className: 'ffa-mono ffa-small' }, subject.stats ? subject.stats.split('/').pop() : '—')))))
+          : h('div', { className: 'ffa-empty' }, 'No subjects discovered under work/ds005165.'))
     }
 
-    function GroupSection({ snap, t }) {
+    function GroupSection({ snap, t, onRunGroup, runningGroup, onInspectGroup }) {
       const group = snap.group || {}
+      const cohort = group.cohort || snap.cohort || {}
       const analyses = Array.isArray(group.analyses) ? group.analyses : []
-      return h(Card, { title: t('groupAnalyses'), subtitle: group.status || '' },
+      const canRun = (cohort.included || 0) >= 2 && !runningGroup
+      return h(Card, { title: t('groupAnalyses'), subtitle: `${analyses.length}` },
+        h('div', { className: 'ffa-row' },
+          h('span', { className: 'ffa-small ffa-muted' },
+            `${cohort.included || 0} subjects · engine 3dMEMA · one-sample`),
+          h('span', { className: 'ffa-spacer' }),
+          h('button', {
+            className: 'ffa-btn ffa-btn-primary',
+            onClick: onRunGroup,
+            disabled: !canRun,
+            title: canRun ? 'One-sample 3dMEMA on the scenes contrast' : 'Two completed subjects are required',
+          }, runningGroup ? t('groupRunning') : t('runGroup'))),
         group.note ? h('div', { className: 'ffa-small ffa-muted' }, group.note) : null,
         analyses.length
           ? analyses.map((analysis) => h('div', {
@@ -631,9 +642,28 @@ window.__ModuleLoader__.load({
             h('div', { className: 'ffa-row' },
               h('span', { className: 'ffa-name' }, `${analysis.id} · ${analysis.contrast}`),
               h('span', { className: 'ffa-spacer' }),
-              h(StatusPill, { status: analysis.status })),
+              h(StatusPill, { status: analysis.status || analysis.error ? 'failed' : 'completed' })),
             h('div', { className: 'ffa-small ffa-muted', style: { marginTop: 4 } },
-              `${analysis.design || ''} · ${analysis.engine || ''} · N=${analysis.n ?? '—'} · ${analysis.correction || ''}`)))
+              `${analysis.engine || ''} · N=${analysis.n ?? '—'} · ${analysis.clusters?.length ?? 0} clusters`),
+            analysis.error
+              ? h('div', { className: 'ffa-small', style: { color: 'var(--dsw-alias-state-error-primary)', marginTop: 4 } }, analysis.error)
+              : null,
+            analysis.clusters?.length
+              ? h('table', { className: 'ffa-table', style: { marginTop: 6 } },
+                h('thead', null, h('tr', null,
+                  h('th', null, 'vox'), h('th', null, 'peak t'), h('th', null, 'IJK'), h('th', null, ''))),
+                h('tbody', null, analysis.clusters.slice(0, 8).map((cluster) => h('tr', {
+                  key: cluster.id,
+                  onClick: () => onInspectGroup(analysis, cluster.ijk),
+                },
+                h('td', null, cluster.size),
+                h('td', null, cluster.peakT),
+                h('td', { className: 'ffa-mono' }, Array.isArray(cluster.ijk) ? cluster.ijk.join(', ') : '—'),
+                h('td', null, h('button', {
+                  className: 'ffa-btn',
+                  onClick: (event) => { event.stopPropagation(); onInspectGroup(analysis, cluster.ijk) },
+                }, t('inspect')))))))
+              : null))
           : h('div', { className: 'ffa-empty' }, 'No group analyses yet.'))
     }
 
@@ -682,6 +712,7 @@ window.__ModuleLoader__.load({
       const [planning, setPlanning] = useState(false)
       const [busyRun, setBusyRun] = useState(false)
       const [busyAction, setBusyAction] = useState(null)
+      const [busyGroup, setBusyGroup] = useState(false)
       const [toast, setToast] = useState(null)
 
       useEffect(() => {
@@ -810,6 +841,27 @@ window.__ModuleLoader__.load({
         }
       }, [refresh, t])
 
+      const runGroup = useCallback(async () => {
+        setBusyGroup(true)
+        try {
+          const res = await fetch('/ffs-analysis/group', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ contrast: 'scenes' }),
+          })
+          const payload = await res.json().catch(() => null)
+          if (!res.ok || !payload || payload.ok !== true) {
+            throw new Error(payload?.error?.message || `group failed (${res.status})`)
+          }
+          setToast(`Group · ${payload.n} subjects · ${Array.isArray(payload.clusters) ? payload.clusters.length : 0} clusters`)
+          await refresh()
+        } catch (e) {
+          setToast(`${t('groupFailed')}: ${e && e.message || e}`)
+        } finally {
+          setBusyGroup(false)
+        }
+      }, [refresh, t])
+
       const openViewer = useCallback(() => {
         try {
           const sidebar = ctx.get('sidebarRight')
@@ -819,37 +871,33 @@ window.__ModuleLoader__.load({
         }
       }, [ctx])
 
-      const inspectResults = useCallback(async (contrast, jumpIJK) => {
-        const results = snap?.results || {}
-        if (!results.statsPath) {
-          setToast('No live GLM bucket yet')
+      const loadResultInViewer = useCallback(async ({ statsPath, meanPath, contrast, ijk }) => {
+        if (!statsPath) {
+          setToast('No stats bucket yet')
           openViewer()
           return
         }
         try {
           const display = []
-          if (results.meanPath) display.push(`SET_UNDERLAY ${results.meanPath}`)
-          display.push(`SET_OVERLAY ${results.statsPath}`)
-          // Underlay/overlay are replaced by path; read the new keys AFTER, never before.
+          if (meanPath) display.push(`SET_UNDERLAY ${meanPath}`)
+          display.push(`SET_OVERLAY ${statsPath}`)
           await callViewer('execute_batch', { lines: display })
           const state = await callViewer('state', {})
           const layers = Array.isArray(state?.layers) ? state.layers : []
-          const overlay = [...layers].reverse().find((layer) => layer.path === results.statsPath && /^O/.test(layer.key))
-            || [...layers].reverse().find((layer) => layer.path === results.statsPath)
+          const overlay = [...layers].reverse().find((layer) => layer.path === statsPath && /^O/.test(layer.key))
+            || [...layers].reverse().find((layer) => layer.path === statsPath)
           const lines = []
           if (overlay) {
             lines.push(`SET_VOLUME ${overlay.key} ${contrast.subBrickIndex ?? 0}`)
-            lines.push(`SET_THRESHOLD ${overlay.key} ${contrast.threshold ?? results.threshold ?? 3.1}`)
+            lines.push(`SET_THRESHOLD ${overlay.key} ${contrast.threshold ?? 3.1}`)
             lines.push(`SET_SIGN ${overlay.key} pos`)
             lines.push(`SET_COLORMAP ${overlay.key} hot`)
           }
-          const target = jumpIJK || contrast.peakIJK
+          const target = ijk || contrast.peakIJK
           if (Array.isArray(target) && target.length === 3) lines.push(`SET_IJK ${target.join(' ')}`)
           if (lines.length) await callViewer('execute_batch', { lines })
-
-          // Remove duplicate layers accumulated by earlier inspect calls (same files, not U/O).
           const duplicates = layers
-            .filter((layer) => layer.path === results.meanPath || layer.path === results.statsPath)
+            .filter((layer) => layer.path === statsPath || (meanPath && layer.path === meanPath))
             .filter((layer) => !/^[UO]/.test(layer.key))
           if (duplicates.length) {
             await callViewer('execute_batch', {
@@ -861,7 +909,28 @@ window.__ModuleLoader__.load({
         } catch (e) {
           setToast(`Viewer failed: ${e && e.message || e}`)
         }
-      }, [callViewer, openViewer, snap])
+      }, [callViewer, openViewer])
+
+      const inspectResults = useCallback((contrast, jumpIJK) => loadResultInViewer({
+        statsPath: snap?.results?.statsPath,
+        meanPath: snap?.results?.meanPath,
+        contrast,
+        ijk: jumpIJK,
+      }), [loadResultInViewer, snap])
+
+      const inspectGroup = useCallback((analysis, jumpIJK) => {
+        const first = (analysis.contrasts && analysis.contrasts[0]) || {
+          name: analysis.contrast,
+          subBrickIndex: 0,
+          threshold: analysis.threshold,
+        }
+        return loadResultInViewer({
+          statsPath: analysis.statsPath,
+          meanPath: analysis.meanPath,
+          contrast: first,
+          ijk: jumpIJK || first.peakIJK,
+        })
+      }, [loadResultInViewer])
 
       const loadIntoViewer = useCallback(async (artifact) => {
         setBusy(artifact.id || artifact.name)
@@ -924,7 +993,7 @@ window.__ModuleLoader__.load({
       else if (section === 'qc') content = h(QcSection, { snap, t })
       else if (section === 'results') content = h(ResultsSection, { snap, t, onInspect: inspectResults })
       else if (section === 'cohort') content = h(CohortSection, { snap, t })
-      else if (section === 'group') content = h(GroupSection, { snap, t })
+      else if (section === 'group') content = h(GroupSection, { snap, t, onRunGroup: runGroup, runningGroup: busyGroup, onInspectGroup: inspectGroup })
       else content = h(ProvenanceSection, { snap, t, onSettle: settleAnalysis, onExport: exportAnalysis, busyAction, onCopy: copyPath })
 
       return h('div', { className: 'ffa-root' },

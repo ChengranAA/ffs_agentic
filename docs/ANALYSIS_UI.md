@@ -2,7 +2,8 @@
 
 Status: **draft for review** — the UI half of [WORKFLOW.md](WORKFLOW.md).
 
-**U0–U3 prototype:** [`ffs-analysis-ui/`](../ffs-analysis-ui/) is installed as a bundle. It
+**U0–U4 prototype (cohort + group):** [`ffs-analysis-ui/`](../ffs-analysis-ui/) is installed
+as a bundle. It
 serves a fixture snapshot from the ds005165 run and becomes **live** after
 `POST /ffs-analysis/plan` generates an `ffs_autoproc` plan (script only). **Run** executes
 that script as one managed child process, streams its output to the script log, and the tab
@@ -173,6 +174,14 @@ sections are filtered by the currently selected subject.
 - Inputs/outputs with sha256, FFS version, device, environment; manifest revision.
 - **Replay**: copy the command, re-run a stage, or reproduce the artifact; records a new
   attempt rather than overwriting history.
+- **Cohort**: subjects are discovered from `work/ds005165/*/proc_sub-*.sh` (latest stats
+  bucket per subject wins). The matrix shows status, work dir and stats; two completed
+  subjects are required for the group level.
+- **Group**: **Run group analysis** resamples each subject's contrast Coef/Tstat to one
+  common native grid (`3dresample`), creates a common mask (`3dAutomask`) and runs AFNI
+  `3dMEMA` one-sample. Results are summarised by the same `scripts/results.py` (group labels
+  `scenes:t`), shown as a cluster table and loadable in the viewer. Two subjects is a
+  mechanics cohort: mixed-effects t-values are unstable, and the grid is native, not MNI.
 - **Settle**: freezes plan, run times, artifact hashes, result summary and software
   versions into `work/ffs-analysis-settled.json`. Enabled only after a completed run.
 - **Export package**: writes `exports/ffs_analysis_<subject>_<stamp>/` containing

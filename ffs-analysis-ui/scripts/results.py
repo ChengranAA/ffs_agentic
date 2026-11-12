@@ -72,6 +72,8 @@ def summarize(
 ) -> dict:
     image = nib.load(str(stats_path))
     data = np.asanyarray(image.dataobj, dtype=np.float32)
+    # AFNI group buckets can carry a singleton 4th axis (e.g. (x, y, z, 1, 5)).
+    data = np.squeeze(data)
     if data.ndim != 4:
         raise ValueError(f"expected a 4-D bucket, got shape {data.shape}")
     affine = image.affine
@@ -86,7 +88,9 @@ def summarize(
     in_mask = 0
 
     for index, label in enumerate(labels):
-        if "tstat" not in label.lower():
+        lower = label.lower()
+        is_t = "tstat" in lower or bool(re.search(r":t$", lower))
+        if not is_t:
             continue
         volume = data[..., index]
         finite = np.isfinite(volume)
@@ -129,8 +133,14 @@ def summarize(
                     break
 
         mm = tuple(round(float(v), 2) for v in (affine @ np.array([*peak_ijk, 1.0]))[:3])
+        if "#" in label:
+            name = label.split("#")[0]
+        elif ":" in label:
+            name = label.split(":")[0]
+        else:
+            name = label.replace("tstat", "")
         contrasts.append({
-            "name": label.split("#")[0].replace("tstat", "").strip(" _-") or label,
+            "name": name.strip(" _-") or label,
             "subBrick": label,
             "index": index,
             "peakT": round(peak_t, 3),
