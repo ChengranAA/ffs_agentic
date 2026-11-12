@@ -1134,6 +1134,30 @@ window.__ModuleLoader__.load({
       )
     }
 
+    class TabErrorBoundary extends React.Component {
+      constructor(props) {
+        super(props)
+        this.state = { error: null }
+      }
+      static getDerivedStateFromError(error) {
+        return { error }
+      }
+      componentDidCatch(error, info) {
+        console.error?.('ffs-viewer tab crashed', error, info)
+      }
+      render() {
+        if (this.state.error) {
+          return h('div', { className: 'ffs-root' },
+            h('div', { className: 'ffs-center' },
+              h('div', null,
+                h('div', { style: { color: TOKENS.error, marginBottom: 8 } }, 'Viewer failed to render'),
+                h('pre', { className: 'ffs-log' }, String(this.state.error?.message || this.state.error)),
+                h('button', { className: 'ffs-btn', onClick: () => this.setState({ error: null }) }, 'Retry'))))
+        }
+        return this.props.children
+      }
+    }
+
     // ------------------------------------------------------------------ docked viewer body
     function ViewerBody({ ctx, t: injectedT }) {
       const t = (key, options) => {
@@ -3823,7 +3847,8 @@ window.__ModuleLoader__.load({
 
         const openDocked = () => {
           try {
-            ctx.sidebarRight.openTab(KIND)
+            const sidebar = ctx.get('sidebarRight')
+            if (sidebar && sidebar.openTab) sidebar.openTab(KIND)
           } catch (error) {
             console.warn?.('ffs-viewer: could not open the docked tab', error)
           }
@@ -3853,7 +3878,8 @@ window.__ModuleLoader__.load({
           if (typeof value === 'string' && value && value !== key) return value
           return t(key, options)
         }
-        const Body = props => h(ViewerBody, { ctx, t: (key, options) => slotT(props, key, options) })
+        const Body = props => h(TabErrorBoundary, null,
+          h(ViewerBody, { ctx, t: (key, options) => slotT(props, key, options) }))
         ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
           name: 'sidebar.right.pane.tab', key: TYPE_ID, locale: 'ffs-viewer',
         }, Body)), 'ffs-viewer: sidebar tab body')
