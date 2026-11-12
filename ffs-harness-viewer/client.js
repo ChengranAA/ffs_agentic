@@ -767,13 +767,17 @@ window.__ModuleLoader__.load({
         if (!snapshot || !snapshot.viewports) return
         if (!layout) {
           if (!loaded) {
-            if (snapshot.workspace && snapshot.workspace.docks) setLayoutState(clone(snapshot.workspace))
+            // A restored workspace can name groups before its windows table is complete;
+            // normalize it or the floating renderer dereferences a missing rect.
+            if (snapshot.workspace && snapshot.workspace.docks) {
+              setLayoutState(normalizeWindows(clone(snapshot.workspace)))
+            }
             return
           }
           const base = snapshot.workspace && snapshot.workspace.docks
             ? snapshot.workspace
             : defaultLayout(snapshot.viewports)
-          setLayoutState(reconcileLayout(base, snapshot.viewports))
+          setLayoutState(normalizeWindows(reconcileLayout(base, snapshot.viewports)))
           return
         }
         if (!loaded) return
@@ -784,7 +788,7 @@ window.__ModuleLoader__.load({
           && lastRemote.current !== remoteJson) {
           lastRemote.current = remoteJson
           const adopted = reconcileLayout(remote, snapshot.viewports)
-          setLayoutState(adopted)
+          setLayoutState(normalizeWindows(adopted))
           // Migrate an older dock-only layout to the floating schema once, so the
           // next poll sees the same shape it just adopted.
           if ((!remote.mode || !remote.windows) && !migrating.current) {
@@ -1763,8 +1767,9 @@ window.__ModuleLoader__.load({
         window.addEventListener('pointermove', move)
         window.addEventListener('pointerup', up)
       }
+      const minimized = groups.filter(group => windows[group.id] && windows[group.id].minimized)
       return h('div', { className: 'ffs-floating', ref: hostRef },
-        groups.map(group => {
+        groups.filter(group => windows[group.id] && !windows[group.id].minimized).map(group => {
           const rect = windows[group.id]
           const active = (group.tabs || []).includes(group.active) ? group.active : group.tabs[0]
           const title = `${viewerLabel(active)}${(group.tabs || []).length > 1 ? ` +${(group.tabs || []).length - 1}` : ''}`
