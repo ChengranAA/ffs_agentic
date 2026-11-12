@@ -1,0 +1,8 @@
+# Insert the viewer bundle into the profile. The plugin derives the project root
+# (the directory containing python/ffsviewer and reference/fastfuncstuff) from its
+# own location; override `projectRoot`, `pythonPath`, or `stateDir` here if the
+# bundle is installed from a copied directory instead of a linked checkout.
+- insert:
+    - id: ffs-harness-viewer
+      name: '@local/ffs-harness-viewer'
+      config: {}

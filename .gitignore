@@ -1,0 +1,7 @@
+.venv/
+.cache/
+.ffs-viewer/
+__pycache__/
+*.pyc
+.DS_Store
+.ffs-viewer.demo-backup/

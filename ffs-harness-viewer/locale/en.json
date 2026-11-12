@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "FFS fMRI viewer",
+    "description": "A docked, tabbed fMRI workspace in the Harness right Sidebar for FFS datasets: linked slice, surface and time-series panes with docked tabs, parked reference slices, per-view settings and a saved layout. User controls and agent tools share the same validated FFS command interface.",
+    "detail": "docs/DETAIL.md"
+  }
+}

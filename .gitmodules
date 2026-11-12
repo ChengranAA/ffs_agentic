@@ -1,0 +1,3 @@
+[submodule "reference/fastfuncstuff"]
+	path = reference/fastfuncstuff
+	url = https://github.com/dowdlelt/fastfuncstuff
