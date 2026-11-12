@@ -202,6 +202,12 @@ window.__ModuleLoader__.load({
 .ffa-pre { margin: 0; padding: 7px 8px; border-radius: 6px; background: var(--dsw-alias-bg-layer-2);
   border: 1px solid var(--dsw-alias-border-l1); font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: pre-wrap; overflow-wrap: anywhere; max-height: 170px; overflow: auto; }
+.ffa-pre-log { max-height: 150px; margin-top: 4px; }
+.ffa-log { margin-top: 8px; }
+.ffa-log-summary { cursor: pointer; font-size: 10px; color: var(--dsw-alias-label-secondary); }
+.ffa-log-summary:hover { color: var(--dsw-alias-label-primary); }
+.ffa-activity { white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font: 10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .ffa-tag { display: inline-block; padding: 0 5px; border-radius: 4px; background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-secondary); font-size: 9px; margin: 1px 4px 1px 0; border: 1px solid var(--dsw-alias-border-l1); }
 .ffa-img { display: block; width: 100%; height: auto; border-radius: 7px; border: 1px solid var(--dsw-alias-border-l1);
@@ -440,6 +446,9 @@ window.__ModuleLoader__.load({
               pipeline.error || `${t('current')} · ${pipeline.currentStage}`)
             : null,
           h('div', { className: 'ffa-progress' }, h('span', { style: { width: `${typeof pipeline.progress === 'number' ? pipeline.progress : completion}%` } })),
+          pipeline.activity
+            ? h('div', { className: 'ffa-small ffa-muted ffa-activity', title: pipeline.activity }, pipeline.activity)
+            : null,
           h(StageFlow, { stages, t }),
           snap.note ? h('div', { className: 'ffa-small ffa-muted' }, snap.note) : null),
         h(Card, { title: t('script') },
@@ -451,9 +460,9 @@ window.__ModuleLoader__.load({
           h('div', { className: 'ffa-small ffa-muted' }, t('command')),
           h('pre', { className: 'ffa-pre' }, pipeline.command || '—'),
           Array.isArray(pipeline.logExcerpt) && pipeline.logExcerpt.length
-            ? h(React.Fragment, null,
-              h('div', { className: 'ffa-small ffa-muted', style: { marginTop: 8 } }, 'log tail'),
-              h('pre', { className: 'ffa-pre' }, pipeline.logExcerpt.join('\n')))
+            ? h('details', { className: 'ffa-log' },
+              h('summary', { className: 'ffa-log-summary' }, `Log · last ${pipeline.logExcerpt.length} lines`),
+              h('pre', { className: 'ffa-pre ffa-pre-log' }, pipeline.logExcerpt.join('\n')))
             : null))
     }
 

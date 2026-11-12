@@ -113,8 +113,33 @@ function parseLog(logText) {
   return { finished, failed }
 }
 
-function tailLines(text, count) {
-  const lines = String(text || '').split('\n').map((line) => line.trim()).filter(Boolean)
+function cleanLogText(text) {
+  return String(text || '')
+    // OSC + CSI + two-character escapes, then backspace.
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\x1b[@-_]/g, '')
+    .replace(/\x08/g, '')
+    // tqdm redraws with CR; each frame becomes a line and is filtered below.
+    .replace(/\r\n?/g, '\n')
+}
+
+function isProgressLine(line) {
+  if (!line) return true
+  if (/\d+%\|/.test(line)) return true
+  if (/\b\d+(?:\.\d+)?(?:it|run|vol|group|pair|batch|chunk|s)\/s\b/.test(line)) return true
+  if (/\[A\s*$/.test(line)) return true
+  if (/^[=\-]{6,}$/.test(line)) return true
+  return false
+}
+
+/** Clean, meaningful tail: no ANSI, no carriage-return redraws, no tqdm bars. */
+function logTail(text, count) {
+  const lines = cleanLogText(text)
+    .split('\n')
+    .map((line) => line.replace(/\s+$/, ''))
+    .filter(Boolean)
+    .filter((line) => !isProgressLine(line))
   return lines.slice(-count)
 }
 
@@ -303,6 +328,7 @@ function runView(state) {
 
   const pipelineStatus = status
     || (parsed.length ? (logFresh && parseLog(logText).finished ? 'completed' : 'planned') : 'empty')
+  const logLines = logTail(logText, 12)
 
   return {
     status: pipelineStatus,
@@ -311,7 +337,8 @@ function runView(state) {
     currentStage: current,
     percent,
     elapsedSeconds,
-    logExcerpt: running || logFresh ? tailLines(logText, 12) : [],
+    logExcerpt: running || logFresh ? logLines : [],
+    activity: running ? (logLines[logLines.length - 1] || null) : null,
     error: run?.error || null,
     startedAt: run?.startedAt || null,
     finishedAt: run?.finishedAt || null,
@@ -356,6 +383,7 @@ function buildLiveSnapshot(state) {
       recipe: state.params.recipe,
       progress: view.percent,
       currentStage: view.currentStage,
+      activity: view.activity,
       elapsedSeconds: view.elapsedSeconds,
       startedAt: view.startedAt,
       finishedAt: view.finishedAt,
@@ -483,6 +511,9 @@ function snapshotSummary() {
       stages: Array.isArray(snapshot.pipeline?.stages) ? snapshot.pipeline.stages.length : 0,
       progress: snapshot.pipeline?.progress ?? null,
       currentStage: snapshot.pipeline?.currentStage ?? null,
+      activity: snapshot.pipeline?.activity ?? null,
+      logLines: Array.isArray(snapshot.pipeline?.logExcerpt) ? snapshot.pipeline.logExcerpt.length : 0,
+      logTail: Array.isArray(snapshot.pipeline?.logExcerpt) ? snapshot.pipeline.logExcerpt.slice(-4) : [],
     },
     job: snapshot.job ?? null,
     artifacts: snapshot.artifacts?.length ?? 0,
