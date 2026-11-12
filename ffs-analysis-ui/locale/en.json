@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "FFS analysis",
+    "description": "Inspect an FFS analysis in the right sidebar: pipeline stages, artifacts, QC, results, cohort and group analyses.",
+    "detail": "docs/DETAIL.md"
+  }
+}

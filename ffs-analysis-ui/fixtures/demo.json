@@ -1,0 +1,213 @@
+{
+  "schema": "ffs-analysis-fixture/1",
+  "note": "UI prototype fixture, built from the real ds005165 sub-01 run (docs/REAL_DATA_TEST.md). Numbers are from that run; nothing here is synthetic science.",
+  "project": {
+    "name": "ds005165 sub-01",
+    "dataset": "BIDS · ds005165 (BOLD Moments)",
+    "root": "data/real/ds005165",
+    "subject": "sub-01",
+    "session": "ses-01",
+    "device": "mps",
+    "createdAt": "2026-11-12T22:30:00+01:00"
+  },
+  "pipeline": {
+    "id": "pipe-ds005165-sub01",
+    "status": "completed",
+    "recipe": "bare_bones",
+    "elapsedSeconds": 165,
+    "finishedAt": "2026-11-12T22:31:50+01:00",
+    "script": "work/ds005165/sub-01/proc_sub-01.sh",
+    "log": "work/ds005165/sub-01/proc_sub-01.log",
+    "command": "PYTHONPATH=python:reference/fastfuncstuff .venv/bin/python -m fastfuncstuff.cli.autoproc -bids_dir data/real/ds005165 -subject 01 -session 01 -task localizer -recipe bare_bones -no_qc -work_dir work/ds005165/sub-01 -out work/ds005165/sub-01/proc_sub-01.sh",
+    "stages": [
+      { "name": "stage02", "label": "moco", "status": "done", "seconds": 44 },
+      { "name": "stage06", "label": "cross-run alignment", "status": "done", "seconds": 2 },
+      { "name": "stage07", "label": "run/session means", "status": "done", "seconds": 1 },
+      { "name": "stage08", "label": "grandmean", "status": "done", "seconds": 1 },
+      { "name": "stage10a", "label": "warpmaster", "status": "done", "seconds": 1 },
+      { "name": "stage10", "label": "final resample", "status": "done", "seconds": 44 },
+      { "name": "stage10b", "label": "masks", "status": "done", "seconds": 1 },
+      { "name": "stage12", "label": "GLM (ffs_reml)", "status": "done", "seconds": 40 }
+    ],
+    "logExcerpt": [
+      "== stage02: moco ==",
+      "ffs_moco batch: 2 runs on device=mps:0",
+      "== stage06: cross-run alignment ==",
+      "== stage07: run maxes, mines, means (→ session common grid) ==",
+      "== stage08: grandmean (all runs, in one space) ==",
+      "== stage10a: warpmaster ==",
+      "== stage10: final compose + resample ==",
+      "== stage10b: masks ==",
+      "== ffs_autoproc: finished after 00:02:45 (165s) =="
+    ]
+  },
+  "artifacts": [
+    {
+      "id": "sub-01.ses-01.stage10.final.run-1",
+      "name": "stage10.final.ses-01.task-localizer.run-1.nii.gz",
+      "kind": "func",
+      "space": "native-EPI",
+      "stage": "stage10",
+      "bytes": 262650622,
+      "path": "work/ds005165/sub-01/stage10.final.ses-01.task-localizer.run-1.nii.gz",
+      "hint": { "role": "timeseries", "colormap": "gray" }
+    },
+    {
+      "id": "sub-01.ses-01.stage10.final.run-2",
+      "name": "stage10.final.ses-01.task-localizer.run-2.nii.gz",
+      "kind": "func",
+      "space": "native-EPI",
+      "stage": "stage10",
+      "bytes": 262773470,
+      "path": "work/ds005165/sub-01/stage10.final.ses-01.task-localizer.run-2.nii.gz",
+      "hint": { "role": "timeseries", "colormap": "gray" }
+    },
+    {
+      "id": "sub-01.ses-01.stage10.mean.run-1",
+      "name": "stage10.final.ses-01.task-localizer.run-1_mean.nii.gz",
+      "kind": "func",
+      "space": "native-EPI",
+      "stage": "stage10",
+      "bytes": 983000,
+      "path": "work/ds005165/sub-01/stage10.final.ses-01.task-localizer.run-1_mean.nii.gz",
+      "hint": { "role": "underlay", "colormap": "gray" }
+    },
+    {
+      "id": "sub-01.ses-01.stage10.mean.run-2",
+      "name": "stage10.final.ses-01.task-localizer.run-2_mean.nii.gz",
+      "kind": "func",
+      "space": "native-EPI",
+      "stage": "stage10",
+      "bytes": 986433,
+      "path": "work/ds005165/sub-01/stage10.final.ses-01.task-localizer.run-2_mean.nii.gz",
+      "hint": { "role": "underlay", "colormap": "gray" }
+    },
+    {
+      "id": "sub-01.ses-01.stage12.reml",
+      "name": "stage12.stats-reml.task-localizer.nii.gz",
+      "kind": "stats",
+      "space": "native-EPI",
+      "stage": "stage12",
+      "bytes": 12912397,
+      "path": "work/ds005165/sub-01/stage12.stats-reml.task-localizer.nii.gz",
+      "hint": { "role": "overlay", "colormap": "hot", "threshold": 3.1, "subBrick": "scenes#0_Tstat" }
+    },
+    {
+      "id": "sub-01.ses-01.stage12.ols",
+      "name": "stage12.stats-ols.task-localizer.nii.gz",
+      "kind": "stats",
+      "space": "native-EPI",
+      "stage": "stage12",
+      "bytes": 12924715,
+      "path": "work/ds005165/sub-01/stage12.stats-ols.task-localizer.nii.gz",
+      "hint": { "role": "overlay", "colormap": "hot", "threshold": 3.1 }
+    },
+    {
+      "id": "sub-01.ses-01.stage12.var",
+      "name": "stage12.stats-reml.task-localizer_ffsremlvar.nii.gz",
+      "kind": "params",
+      "space": "native-EPI",
+      "stage": "stage12",
+      "bytes": 3321463,
+      "path": "work/ds005165/sub-01/stage12.stats-reml.task-localizer_ffsremlvar.nii.gz",
+      "hint": { "role": "overlay", "colormap": "redblue" }
+    },
+    {
+      "id": "sub-01.design",
+      "name": "stage11.design.task-localizer.toml",
+      "kind": "design",
+      "stage": "stage11",
+      "bytes": 18184,
+      "path": "work/ds005165/sub-01/stage11.design.task-localizer.toml",
+      "hint": { "role": "text" }
+    },
+    {
+      "id": "sub-01.script",
+      "name": "proc_sub-01.sh",
+      "kind": "script",
+      "stage": "pipeline",
+      "bytes": 18500,
+      "path": "work/ds005165/sub-01/proc_sub-01.sh",
+      "hint": { "role": "text" }
+    },
+    {
+      "id": "sub-01.log",
+      "name": "proc_sub-01.log",
+      "kind": "log",
+      "stage": "pipeline",
+      "bytes": 73493,
+      "path": "work/ds005165/sub-01/proc_sub-01.log",
+      "hint": { "role": "text" }
+    }
+  ],
+  "qc": {
+    "status": "figures-on-cpu",
+    "note": "QC figures were rendered on CPU: the MPS QC path raises a float64 error (docs/REAL_DATA_TEST.md).",
+    "figures": [
+      {
+        "id": "qc-moco-run1",
+        "label": "Motion · tSNR · Carpet",
+        "caption": "ffs_moco QC, run-01, CPU",
+        "asset": "qc_cpu.png"
+      }
+    ]
+  },
+  "results": {
+    "model": "ffs_reml ARMA(1,1) · SPMG1 · 2 runs · 536 TRs",
+    "voxelsInMask": 263417,
+    "meanR2": 0.268,
+    "subBricks": 13,
+    "contrasts": [
+      {
+        "id": "scenes-tstat",
+        "name": "scenes > baseline",
+        "subBrick": "scenes#0_Tstat",
+        "stat": "t",
+        "peak": 8.78,
+        "peakIJK": [38, 27, 28],
+        "status": "fit"
+      }
+    ],
+    "clusters": [],
+    "clusterNote": "No cluster table computed yet. Contrasts and cluster inference are M3 work; the map above is the REML bucket inspected in the viewer.",
+    "preview": "ds005165_scenes_tstat.png"
+  },
+  "cohort": {
+    "status": "prototype",
+    "note": "One subject in this fixture. The cohort matrix is shown for layout; real cohort/group data lands with M4/M5.",
+    "total": 1,
+    "included": 1,
+    "variants": ["2 localizer runs", "no fieldmap", "T1w present (unused: bare_bones)"],
+    "subjects": [
+      {
+        "id": "sub-01",
+        "include": true,
+        "stages": { "stage02": "done", "stage10": "done", "firstLevel": "done", "qc": "warn" },
+        "variants": ["2 runs", "no fmap"],
+        "note": "QC figures on CPU; MPS QC float64"
+      }
+    ]
+  },
+  "group": {
+    "status": "not-ready",
+    "note": "Group analysis needs a cohort (M4/M5). The card is a layout preview.",
+    "analyses": [
+      {
+        "id": "g1",
+        "contrast": "scenes > baseline",
+        "design": "one-sample",
+        "engine": "3dMEMA",
+        "n": 1,
+        "correction": "cluster (voxel p<.005, cluster p<.05, NN2)",
+        "status": "draft"
+      }
+    ]
+  },
+  "provenance": {
+    "settled": false,
+    "settledNote": "Not settled: package export needs ffs_settle/ffs_export (M3).",
+    "exportEnabled": false,
+    "artifacts": 10,
+    "scriptSha256Note": "Recorded when settle lands."
+  }
+}

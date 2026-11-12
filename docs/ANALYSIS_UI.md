@@ -2,6 +2,12 @@
 
 Status: **draft for review** — the UI half of [WORKFLOW.md](WORKFLOW.md).
 
+**U0 implementation:** [`ffs-analysis-ui/`](../ffs-analysis-ui/) is installed as a bundle. Its
+Host half serves a fixture snapshot built from the ds005165 run; its Client half is the
+right-sidebar **FFS analysis** tab (pipeline, data, QC, results, cohort, group, provenance).
+Only "Load in viewer" is live. Open it from **Analysis** in the Session header, or from the
+sidebar tab guide; agent tool `ffs_analysis_show` reveals it.
+
 The workflow design covered execution, provenance, and plugin contracts. This document
 covers what the user actually looks at: a dedicated inspection surface for the pipeline,
 the data, QC, the results, and the provenance — and how it drives the existing viewer

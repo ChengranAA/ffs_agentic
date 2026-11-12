@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "FFS 分析",
+    "description": "在右侧边栏检查 FFS 分析：流程阶段、产物、QC、结果、被试队列与组水平分析。",
+    "detail": "docs/DETAIL.md"
+  }
+}

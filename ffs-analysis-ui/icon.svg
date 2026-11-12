@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+  <!-- Analysis inspector: stage bars over a baseline. -->
+  <g fill="none" stroke="#E6EDF3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M7 26V16M13 26V9M19 26V19M25 26V12M31 26V21"/>
+    <path d="M5 29h26"/>
+  </g>
+  <circle cx="19" cy="8.2" r="1.7" fill="#E6EDF3"/>
+</svg>

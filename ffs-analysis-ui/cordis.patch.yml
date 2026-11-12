@@ -1,0 +1,7 @@
+# Insert the FFS analysis inspection tab (UI prototype).
+# The Host half serves a fixture snapshot and assets from ./fixtures; the Client half
+# registers the right-sidebar tab and the Session-header button.
+- insert:
+    - id: ffs-analysis-ui
+      name: '@local/ffs-analysis-ui'
+      config: {}
