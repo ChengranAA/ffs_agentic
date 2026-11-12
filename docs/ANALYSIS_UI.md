@@ -2,15 +2,18 @@
 
 Status: **draft for review** — the UI half of [WORKFLOW.md](WORKFLOW.md).
 
-**U0–U2 prototype:** [`ffs-analysis-ui/`](../ffs-analysis-ui/) is installed as a bundle. It
+**U0–U3 prototype:** [`ffs-analysis-ui/`](../ffs-analysis-ui/) is installed as a bundle. It
 serves a fixture snapshot from the ds005165 run and becomes **live** after
-`POST /ffs-analysis/plan` generates an `ffs_autoproc` plan (script only). **Run** then
-executes that script as one managed child process, streams its output to the script log, and
-the tab polls the snapshot every 2 s for live stage status and progress; **Cancel** signals
-the process group. The live snapshot is parsed from the generated script, the log and the
-work directory; plan/run state lives in `work/ffs-analysis-project.json` and
-`work/ffs-analysis-run.json`. Artifact loading goes to the viewer, and `ffs_analysis_show`
-reveals the tab. Open it from **Analysis** in the Session header or the sidebar tab guide.
+`POST /ffs-analysis/plan` generates an `ffs_autoproc` plan (script only). **Run** executes
+that script as one managed child process, streams its output to the script log, and the tab
+polls the snapshot every 2 s for live stage status, per-stage wall times and progress;
+**Cancel** signals the process group. After the GLM, the Results section is summarized from
+the stats bucket by `scripts/results.py` (contrasts, peaks, clusters at t ≥ 3.1, 6-connectivity)
+and **Inspect in viewer** loads the mean + bucket, sets the overlay, sub-brick, threshold,
+sign and colormap, then jumps to the peak (or a clicked cluster). Plan/run state lives in
+`work/ffs-analysis-project.json` and `work/ffs-analysis-run.json`; result summaries are cached
+in the work dir. `ffs_analysis_show` reveals the tab. Open it from **Analysis** in the
+Session header or the sidebar tab guide.
 
 The workflow design covered execution, provenance, and plugin contracts. This document
 covers what the user actually looks at: a dedicated inspection surface for the pipeline,
@@ -125,15 +128,14 @@ sections are filtered by the currently selected subject.
   one renderer, identical output in the report, no plotting dependency in the browser.
 
 ### Results
-- Contrast list (from stage12 or `ffs_util_concalc`): name, model, stat, threshold, dof.
-- Preview: the viewer's current render (`ffs_viewer_render`) at the selected contrast,
-  with the crosshair drawn; a "show in viewer" hand-off keeps it live.
-- **Cluster table**: id, size, peak t, x/y/z, region; sortable; clicking a row issues
-  `SET_XYZ`/`SET_INDEX` through the viewer service, so the image and the table agree.
-- Threshold/colormap controls issue `SET_THRESHOLD`/`SET_COLORMAP` on the stats layer
-  (debounced); the viewer remains the authority, the panel is a remote control.
-- Screenshot: "capture" writes `ffs_viewer_render` output into the artifact list as
-  `kind: "screenshot"` so the report reuses exactly what was inspected.
+- Contrast list from the GLM bucket: name, peak t, peak IJK; **Inspect** loads the mean +
+  stats bucket into the viewer and applies `SET_OVERLAY`, `SET_VOLUME`, `SET_THRESHOLD`,
+  `SET_SIGN pos`, `SET_COLORMAP hot`, then jumps to the peak.
+- **Cluster table**: size, peak t, IJK and mm at t ≥ 3.1 (6-connectivity, ≥ 10 voxels);
+  clicking a row inspects its contrast and jumps the viewer to that cluster.
+- The summary comes from `scripts/results.py` reading the bucket's AFNI `BRICK_LABS`; it is
+  inspection only — no recomputation and no correction for multiple comparisons yet.
+- Threshold/colormap controls and screenshot capture remain the next step (M3b).
 
 ### Cohort
 - Header: subjects total/included/excluded, variant summary, first-level completion.

@@ -17,7 +17,7 @@
  * under `ctx.jobs` (Jobs panel, owner fencing) is the follow-up.
  */
 
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -43,6 +43,9 @@ const PLAN_DEFAULTS = {
   noQc: true,
   workDir: 'work/ds005165/sub-01',
 }
+
+const RESULTS_SCRIPT = path.join(PKG_DIR, 'scripts', 'results.py')
+const RESULTS_CACHE = 'ffs-analysis-results.json'
 
 const CONTENT_TYPES = {
   '.png': 'image/png',
@@ -148,8 +151,8 @@ function artifactKind(name) {
   if (name.endsWith('.sh')) return 'script'
   if (name.endsWith('.log')) return 'log'
   if (name.endsWith('.toml')) return 'design'
-  if (/stats-reml|stats-ols/.test(name)) return 'stats'
   if (/ffsremlvar/.test(name)) return 'params'
+  if (/stats-reml|stats-ols/.test(name)) return 'stats'
   if (/mask/.test(name)) return 'mask'
   if (/_mean\./.test(name)) return 'func'
   if (/stage\d+/.test(name)) return 'func'
@@ -179,6 +182,7 @@ function listArtifacts(workAbs) {
   }
   for (const entry of entries) {
     if (!entry.isFile()) continue
+    if (entry.name === RESULTS_CACHE) continue
     if (!/\.(nii\.gz|nii|sh|log|toml|json)$/i.test(entry.name)) continue
     const abs = path.join(workAbs, entry.name)
     let size = 0
@@ -408,13 +412,102 @@ function runView(state) {
   }
 }
 
+function ensureResults(workAbs, statsAbs) {
+  const out = path.join(workAbs, RESULTS_CACHE)
+  try {
+    if (existsSync(out) && statSync(out).mtimeMs >= statSync(statsAbs).mtimeMs) {
+      return JSON.parse(readFileSync(out, 'utf8'))
+    }
+  } catch {
+    // fall through and recompute
+  }
+  const python = process.env.FFS_PYTHON || path.join(PROJECT_ROOT, '.venv', 'bin', 'python')
+  try {
+    execFileSync(python, [
+      RESULTS_SCRIPT, statsAbs,
+      '--out', out,
+      '--threshold', '3.1',
+      '--min-cluster', '10',
+      '--max-clusters', '10',
+    ], {
+      cwd: PROJECT_ROOT,
+      env: ffsEnv(),
+      timeout: 180000,
+      stdio: 'pipe',
+    })
+    return JSON.parse(readFileSync(out, 'utf8'))
+  } catch (error) {
+    const detail = error?.stderr ? String(error.stderr) : (error?.message || String(error))
+    return {
+      error: detail.split('\n').filter(Boolean).slice(-3).join(' '),
+      contrasts: [],
+      subBricks: [],
+      voxels: 0,
+    }
+  }
+}
+
 function buildLiveSnapshot(state) {
   const workAbs = resolveInside(state.workDir, 'work dir')
   const view = runView(state)
   const artifacts = listArtifacts(workAbs)
   const figures = listQcFigures(workAbs)
   const subjectId = `sub-${state.params.subject}`
-  const hasStats = artifacts.some((artifact) => artifact.kind === 'stats')
+  const statsArtifact = artifacts.find((artifact) => artifact.kind === 'stats' && !/ffsremlvar/.test(artifact.name) && /stats-reml/.test(artifact.name))
+    || artifacts.find((artifact) => artifact.kind === 'stats' && !/ffsremlvar/.test(artifact.name))
+    || null
+  const meanArtifact = artifacts.find((artifact) => artifact.kind === 'func' && /_mean\./.test(artifact.name)) || null
+  let results = {
+    model: '—',
+    voxelsInMask: null,
+    meanR2: null,
+    subBricks: null,
+    contrasts: [],
+    clusters: [],
+    clusterNote: 'No GLM yet. Run the plan to produce a stats bucket.',
+  }
+  if (statsArtifact) {
+    const summary = ensureResults(workAbs, statsArtifact.path)
+    if (summary.error) {
+      results = {
+        ...results,
+        model: 'GLM bucket present',
+        clusterNote: `Could not summarize the bucket: ${summary.error}`,
+      }
+    } else {
+      const contrasts = (summary.contrasts || []).map((contrast) => ({
+        id: contrast.name,
+        name: contrast.name,
+        subBrick: contrast.subBrick,
+        subBrickIndex: contrast.index,
+        stat: 't',
+        peak: contrast.peakT,
+        peakIJK: contrast.peakIJK,
+        peakMM: contrast.peakMM,
+        threshold: summary.threshold,
+      }))
+      const clusters = (summary.contrasts || []).flatMap((contrast) => (contrast.clusters || []).map((cluster) => ({
+        id: `${contrast.name}.${cluster.ijk.join('_')}`,
+        contrast: contrast.name,
+        subBrick: contrast.subBrick,
+        subBrickIndex: contrast.index,
+        threshold: summary.threshold,
+        ...cluster,
+      }))).slice(0, 60)
+      results = {
+        model: 'ffs_reml ARMA(1,1)',
+        voxelsInMask: summary.voxels || null,
+        meanR2: null,
+        subBricks: Array.isArray(summary.subBricks) ? summary.subBricks.length : null,
+        threshold: summary.threshold,
+        statsPath: statsArtifact.path,
+        meanPath: meanArtifact?.path || null,
+        contrasts,
+        clusters,
+        clusterNote: `t ≥ ${summary.threshold}, clusters ≥ ${summary.minCluster} voxels (6-connectivity), read from the bucket — inspection only.`,
+      }
+    }
+  }
   const notes = [
     'Live project state, built from the generated script, its log and the work directory.',
   ]
@@ -484,17 +577,7 @@ function buildLiveSnapshot(state) {
         : 'No QC figures yet. QC runs on CPU on this Mac (the MPS path raises a float64 error).',
       figures,
     },
-    results: {
-      model: hasStats ? 'GLM bucket present' : '—',
-      voxelsInMask: null,
-      meanR2: null,
-      subBricks: null,
-      contrasts: [],
-      clusters: [],
-      clusterNote: hasStats
-        ? 'A GLM bucket exists in the work directory; contrast and cluster inspection lands with M3.'
-        : 'No GLM yet. Run the plan to produce a stats bucket.',
-    },
+    results,
     cohort: {
       status: 'live',
       note: 'One subject is planned at a time in this phase; cohort management lands with M4.',
@@ -589,6 +672,11 @@ function snapshotSummary() {
     job: snapshot.job ?? null,
     artifacts: snapshot.artifacts?.length ?? 0,
     cohort: Array.isArray(snapshot.cohort?.subjects) ? snapshot.cohort.subjects.length : 0,
+    results: {
+      contrasts: Array.isArray(snapshot.results?.contrasts) ? snapshot.results.contrasts.length : 0,
+      clusters: Array.isArray(snapshot.results?.clusters) ? snapshot.results.clusters.length : 0,
+      threshold: snapshot.results?.threshold ?? null,
+    },
     groupAnalyses: Array.isArray(snapshot.group?.analyses) ? snapshot.group.analyses.length : 0,
     fixture: FIXTURE_FILE,
     state: PROJECT_STATE_FILE,

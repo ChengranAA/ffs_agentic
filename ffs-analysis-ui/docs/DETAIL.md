@@ -19,7 +19,7 @@ snapshot built from the ds005165 run documented in
 | Pipeline | run card, stage flow (`stage02` … `stage12`, numbered nodes on a rail) with per-stage durations, elapsed time, script and log tail, **Plan pipeline / Re-plan** |
 | Data | artifact table with kind/stage/size, artifact detail with path and display hints, **Load in viewer** |
 | QC | QC figures (motion, tSNR, carpet) and the note about CPU-only QC on this Mac |
-| Results | REML model summary, contrasts and peak, preview montage, empty cluster-table state |
+| Results | live contrasts and peaks from the GLM bucket, cluster table at t ≥ 3.1, **Inspect in viewer** |
 | Cohort | subject matrix (one row in this fixture), stage dots, variants |
 | Group | group analysis card (draft; needs a real cohort) |
 | Provenance | settle status, script/log paths, disabled **Export package** |
@@ -43,7 +43,7 @@ snapshot built from the ds005165 run documented in
 - **Live** (`source: "live"`): after a plan, built from the real script/log/work dir. The
   header shows a `live`/`fixture` tag.
 - **Execution is a plain child process** for this milestone (moving it under `ctx.jobs` is
-  next); there is no QC/GLM result extraction yet (M3), and settle/export is still open.
+  next); QC figures remain M2b, and settle/export is still open.
 - A cancelled run leaves partial outputs; the script is resumable, so Run again continues.
 - `-no_qc` is the default plan on this Mac: QC must run on CPU and is not part of this run.
 - **English UI only** (the `zh` locale covers the plugin metadata, not the tab body).

@@ -527,32 +527,52 @@ window.__ModuleLoader__.load({
           : h('div', { className: 'ffa-empty' }, 'No QC figures in the snapshot.'))
     }
 
-    function ResultsSection({ snap, t, onOpenViewer }) {
+    function ResultsSection({ snap, t, onInspect }) {
       const results = snap.results || {}
       const contrasts = Array.isArray(results.contrasts) ? results.contrasts : []
       const clusters = Array.isArray(results.clusters) ? results.clusters : []
       const preview = results.preview ? `${snap.assets?.base || '/ffs-analysis/asset/'}${results.preview}` : null
+      const inspectCluster = (cluster) => onInspect({
+        name: cluster.contrast,
+        subBrickIndex: cluster.subBrickIndex,
+        threshold: cluster.threshold,
+        peakIJK: cluster.ijk,
+      }, cluster.ijk)
       return h(React.Fragment, null,
-        h(Card, { title: t('model') },
+        h(Card, { title: t('model'), subtitle: results.threshold ? `t ≥ ${results.threshold}` : '' },
           h('dl', { className: 'ffa-kv' },
             h('dt', null, 'model'), h('dd', null, results.model || '—'),
             h('dt', null, 'voxels'), h('dd', null, results.voxelsInMask ?? '—'),
-            h('dt', null, 'mean R²'), h('dd', null, results.meanR2 ?? '—'),
-            h('dt', null, 'sub-bricks'), h('dd', null, results.subBricks ?? '—'))),
+            h('dt', null, 'sub-bricks'), h('dd', null, results.subBricks ?? '—'),
+            h('dt', null, 'threshold'), h('dd', null, results.threshold ?? '—'))),
         h('div', { className: 'ffa-split' },
-          h(Card, { title: t('contrasts') },
+          h(Card, { title: t('contrasts'), subtitle: `${contrasts.length}` },
             contrasts.length
               ? h('table', { className: 'ffa-table' },
-                h('thead', null, h('tr', null, h('th', null, 'contrast'), h('th', null, 'peak'), h('th', null, 'IJK'))),
+                h('thead', null, h('tr', null,
+                  h('th', null, 'contrast'), h('th', null, 'peak t'), h('th', null, 'IJK'), h('th', null, ''))),
                 h('tbody', null, contrasts.map((contrast) => h('tr', { key: contrast.id || contrast.name },
                   h('td', null, h('div', { className: 'ffa-name' }, contrast.name), h('div', { className: 'ffa-small ffa-muted' }, contrast.subBrick || '')),
                   h('td', null, contrast.peak ?? '—'),
-                  h('td', { className: 'ffa-mono' }, Array.isArray(contrast.peakIJK) ? contrast.peakIJK.join(', ') : '—')))))
+                  h('td', { className: 'ffa-mono' }, Array.isArray(contrast.peakIJK) ? contrast.peakIJK.join(', ') : '—'),
+                  h('td', null, h('button', {
+                    className: 'ffa-btn',
+                    onClick: (event) => { event.stopPropagation(); onInspect(contrast) },
+                  }, t('inspect')))))))
               : h('div', { className: 'ffa-empty' }, 'No contrasts in the snapshot.'),
-            h('div', { className: 'ffa-actions' }, h('button', { className: 'ffa-btn', onClick: onOpenViewer }, t('inspect')))),
-          h(Card, { title: t('clusters') },
+            h('div', { className: 'ffa-actions' },
+              h('span', { className: 'ffa-small ffa-muted' }, 'Loads the mean + bucket in the viewer and sets the overlay.'))),
+          h(Card, { title: t('clusters'), subtitle: `${clusters.length}` },
             clusters.length
-              ? h('ul', null, clusters.map((cluster, index) => h('li', { key: index }, JSON.stringify(cluster))))
+              ? h('table', { className: 'ffa-table' },
+                h('thead', null, h('tr', null,
+                  h('th', null, 'contrast'), h('th', null, 'vox'), h('th', null, 'peak t'), h('th', null, 'IJK'), h('th', null, 'mm'))),
+                h('tbody', null, clusters.map((cluster) => h('tr', { key: cluster.id, onClick: () => inspectCluster(cluster) },
+                  h('td', { className: 'ffa-name' }, cluster.contrast),
+                  h('td', null, cluster.size),
+                  h('td', null, cluster.peakT),
+                  h('td', { className: 'ffa-mono' }, Array.isArray(cluster.ijk) ? cluster.ijk.join(', ') : '—'),
+                  h('td', { className: 'ffa-mono ffa-small' }, Array.isArray(cluster.mm) ? cluster.mm.join(', ') : '—')))))
               : h('div', { className: 'ffa-empty' }, results.clusterNote || 'No cluster table yet.'))),
         preview
           ? h(Card, { title: t('preview') },
@@ -706,6 +726,20 @@ window.__ModuleLoader__.load({
         }
       }, [refresh, t])
 
+      const callViewer = useCallback(async (endpoint, payload) => {
+        const conn = ctx.get('connection')
+        if (!conn || !conn.rpc) throw new Error('Harness connection is not ready')
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), 60000)
+        try {
+          const result = await conn.rpc.call('/ffs', endpoint, payload, controller.signal)
+          if (!result || result.ok !== true) throw new Error(result?.error?.message || `${endpoint} failed`)
+          return result.value
+        } finally {
+          clearTimeout(timer)
+        }
+      }, [ctx])
+
       const openViewer = useCallback(() => {
         try {
           const sidebar = ctx.get('sidebarRight')
@@ -714,6 +748,39 @@ window.__ModuleLoader__.load({
           // no session/controller: nothing to reveal
         }
       }, [ctx])
+
+      const inspectResults = useCallback(async (contrast, jumpIJK) => {
+        const results = snap?.results || {}
+        if (!results.statsPath) {
+          setToast('No live GLM bucket yet')
+          openViewer()
+          return
+        }
+        try {
+          const paths = [results.meanPath, results.statsPath].filter(Boolean)
+          await callViewer('load_paths', { paths })
+          const state = await callViewer('state', {})
+          const layers = Array.isArray(state?.layers) ? state.layers : []
+          const statsLayer = layers.find((layer) => layer.path === results.statsPath)
+            || layers.find((layer) => layer.name && results.statsPath.endsWith(`/${layer.name}`))
+          const lines = []
+          if (results.meanPath) lines.push(`SET_UNDERLAY ${results.meanPath}`)
+          lines.push(`SET_OVERLAY ${results.statsPath}`)
+          if (statsLayer) {
+            lines.push(`SET_VOLUME ${statsLayer.key} ${contrast.subBrickIndex ?? 0}`)
+            lines.push(`SET_THRESHOLD ${statsLayer.key} ${contrast.threshold ?? results.threshold ?? 3.1}`)
+            lines.push(`SET_SIGN ${statsLayer.key} pos`)
+            lines.push(`SET_COLORMAP ${statsLayer.key} hot`)
+          }
+          const target = jumpIJK || contrast.peakIJK
+          if (Array.isArray(target) && target.length === 3) lines.push(`SET_IJK ${target.join(' ')}`)
+          await callViewer('execute_batch', { lines })
+          openViewer()
+          setToast(`Viewer · ${contrast.name || 'results'}`)
+        } catch (e) {
+          setToast(`Viewer failed: ${e && e.message || e}`)
+        }
+      }, [callViewer, openViewer, snap])
 
       const loadIntoViewer = useCallback(async (artifact) => {
         setBusy(artifact.id || artifact.name)
@@ -774,7 +841,7 @@ window.__ModuleLoader__.load({
       if (section === 'pipeline') content = h(PipelineSection, { snap, t, onPlan: planPipeline, planning, onRun: runPipeline, onCancel: cancelPipeline, runningNow, busyRun })
       else if (section === 'data') content = h(DataSection, { snap, t, onLoad: loadIntoViewer, onCopy: copyPath, busy })
       else if (section === 'qc') content = h(QcSection, { snap, t })
-      else if (section === 'results') content = h(ResultsSection, { snap, t, onOpenViewer: openViewer })
+      else if (section === 'results') content = h(ResultsSection, { snap, t, onInspect: inspectResults })
       else if (section === 'cohort') content = h(CohortSection, { snap, t })
       else if (section === 'group') content = h(GroupSection, { snap, t })
       else content = h(ProvenanceSection, { snap, t })
