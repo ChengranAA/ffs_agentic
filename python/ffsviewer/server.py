@@ -845,7 +845,8 @@ class Sidecar:
         if len(paths) > 64:
             raise SidecarError("invalid", "too many files in one load (max 64)")
         origin = str(params.get("origin") or "ui")
-        before = {layer.key for layer in self.session.state.layers.layers}
+        keep_surfaces = bool(params.get("keep_surfaces") or params.get("keepSurfaces"))
+        resolved: list[Path] = []
         for raw in paths:
             path = Path(raw).expanduser()
             if not path.is_absolute():
@@ -856,6 +857,15 @@ class Sidecar:
                 raise SidecarError("not-found", f"cannot resolve {raw!r}") from None
             if not path.is_file():
                 raise SidecarError("not-found", f"no such dataset: {path}", {"path": str(path)})
+            resolved.append(path)
+        # Surfaces belong to the data they were loaded for. A dataset-only load starts a
+        # new context: unload the previous subject rather than leaving stale outlines (and a
+        # stale Scene subject) over unrelated data. Callers can pass keep_surfaces=true.
+        before = {layer.key for layer in self.session.state.layers.layers}
+        if resolved and not subject and not keep_surfaces and self._clear_surfaces():
+            self.meta["commandCount"] += 1
+            self._bump("source", origin)
+        for path in resolved:
             self.execute(f"LOAD {_quote(path)}", origin)
         if subject:
             subject_path = Path(subject).expanduser()
@@ -885,6 +895,27 @@ class Sidecar:
             "loaded": [layer.key for layer in layers],
             "subject": str(subject) if subject else None,
         }
+
+    def _clear_surfaces(self) -> bool:
+        """Unload the current subject and hide its outlines. Returns whether anything changed."""
+        assert self.session is not None
+        if self.session.surfaces.subject is None:
+            return False
+        self.session.surfaces.clear()
+        self.session.state.surfaces_shown = ()
+        return True
+
+    def clear_surfaces(self, params: dict) -> dict:
+        """Unload the loaded FreeSurfer subject; the Scene card then reports no subject."""
+        self.ensure_session()
+        assert self.session is not None
+        origin = str(params.get("origin") or "ui")
+        cleared = self._clear_surfaces()
+        if cleared:
+            self.meta["commandCount"] += 1
+            self._bump("source", origin)
+        self._await_resident()
+        return {"state": self.snapshot(), "cleared": cleared}
 
     # -- sources: folders, catalog, subjects ---------------------------
     SOURCES_FILE = "sources.json"
@@ -1073,6 +1104,10 @@ class Sidecar:
         self.ensure_session()
         path = self._resolve_file(str(params.get("path") or ""))
         origin = str(params.get("origin") or "ui")
+        keep_surfaces = bool(params.get("keep_surfaces") or params.get("keepSurfaces"))
+        if not keep_surfaces and self._clear_surfaces():
+            self.meta["commandCount"] += 1
+            self._bump("source", origin)
         preview = self.session.preview_path
         if preview is not None and Path(preview) == path:
             key = self.session.commit_preview()
@@ -1227,6 +1262,8 @@ class Sidecar:
                 result = self.browse(params)
             elif method == "load_paths":
                 result = self.load_paths(params)
+            elif method == "clear_surfaces":
+                result = self.clear_surfaces(params)
             elif method == "sources":
                 result = self.sources(params)
             elif method == "add_folder":

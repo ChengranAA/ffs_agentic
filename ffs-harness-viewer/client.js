@@ -1262,9 +1262,11 @@ window.__ModuleLoader__.load({
       const compact = width > 0 && width < 640
       const railVisible = railPref === null ? !compact : railPref
       const showRail = railVisible && !compact
+      const surfacesLoaded = (snapshot.surfaces?.loaded || []).length > 0
+      const surfaceSubjectName = snapshot.surfaces?.subject ? snapshot.surfaces.subject.split('/').pop() : null
       return h('div', { className: 'ffs-root', ref: rootRef },
         h('div', { className: 'ffs-header' },
-          h('span', { className: 'ffs-brand' }, h(FfsIcon, { size: 15 }), t('title')),
+          h('span', { className: 'ffs-brand', title: t('title') }, h(FfsIcon, { size: 15 }), 'FFS'),
           h('button', {
             type: 'button', className: 'ffs-btn icon', title: 'Add viewer',
             onClick: () => setAddMenu(value => !value),
@@ -3632,19 +3634,28 @@ window.__ModuleLoader__.load({
               : null,
           ),
           card('scene', 'Scene', null,
-            h('div', { className: 'ffs-control' },
-              h('span', { className: 'ffs-control-head' }, h('span', null, 'Surface outlines')),
-              h('div', { className: 'ffs-seg' },
-                [['-', 'Off'], ['white', 'White'], ['pial', 'Pial'], ['white,pial', 'Both']].map(([value, label]) => h('button', {
-                  key: value, type: 'button',
-                  className: (value === '-' ? !snapshot.surfaces.shown.length : snapshot.surfaces.shown.join(',') === value) ? 'active' : '',
-                  onClick: () => set(value === '-' ? "SHOW_SURFACES ''" : `SHOW_SURFACES ${value}`),
-                }, label)),
-              ),
-            ),
+            surfacesLoaded
+              ? h('div', { className: 'ffs-control' },
+                h('span', { className: 'ffs-control-head' }, h('span', null, 'Surface outlines')),
+                h('div', { className: 'ffs-seg' },
+                  [['-', 'Off'], ['white', 'White'], ['pial', 'Pial'], ['white,pial', 'Both']].map(([value, label]) => h('button', {
+                    key: value, type: 'button',
+                    className: (value === '-' ? !snapshot.surfaces.shown.length : snapshot.surfaces.shown.join(',') === value) ? 'active' : '',
+                    onClick: () => set(value === '-' ? "SHOW_SURFACES ''" : `SHOW_SURFACES ${value}`),
+                  }, label)),
+                ),
+              )
+              : h('div', { className: 'ffs-hint' }, 'No subject loaded. Add one from Data → Subjects.'),
             h('div', { className: 'ffs-info-row' },
               h('span', { className: 'ffs-info-label' }, 'Subject'),
-              h('span', { className: 'ffs-info-value', title: snapshot.surfaces.subject || '' }, snapshot.surfaces.subject ? snapshot.surfaces.subject.split('/').pop() : 'none'),
+              h('span', { className: 'ffs-info-value', title: snapshot.surfaces.subject || '' }, surfaceSubjectName || 'none'),
+              surfacesLoaded
+                ? h('button', {
+                  type: 'button', className: 'ffs-btn', disabled: busy,
+                  title: 'Unload the subject and hide its outlines',
+                  onClick: () => run('clear_surfaces', {}, 'surfaces cleared').catch(() => {}),
+                }, 'Clear')
+                : null,
             ),
             h('div', { className: 'ffs-info-row' },
               h('span', { className: 'ffs-info-label' }, 'Mode'),

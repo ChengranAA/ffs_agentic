@@ -83,7 +83,8 @@ All methods return JSON-safe values. `state` returns the full snapshot described
 | `surface_pick` | `{view, xNdc, yNdc, aspect, camera:{rotation:[9], distance, target:[3], fovDeg}}` | `{state, hemi, vertex, mm, distance}` |
 | `series` | `{view: string}` | series result |
 | `browse` | `{path?: string}` | directory listing for the data picker: `{path, parent, subject, entries:[{name,path,kind,subject?,size?,suffix?}], shortcuts}` |
-| `load_paths` | `{paths?: string[], subject?: string}` | loads datasets and/or FreeSurfer surfaces, returns `{state, loaded, subject}` |
+| `load_paths` | `{paths?: string[], subject?: string, keep_surfaces?: boolean}` | loads datasets and/or FreeSurfer surfaces, returns `{state, loaded, subject}`; a dataset-only load unloads a previous subject unless `keep_surfaces` |
+| `clear_surfaces` | – | unload the loaded FreeSurfer subject and hide its slice outlines; returns `{state, cleared}` |
 | `sources` | – | persisted source folders, subjects and the current catalog |
 | `add_folder` | `{path, recursive?}` | scan a directory into the catalog and persist it as a source folder |
 | `remove_folder` | `{path}` | remove it from the source list (loaded layers are untouched) |

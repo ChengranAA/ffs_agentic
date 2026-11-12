@@ -294,7 +294,8 @@ class Bridge {
         return this.sidecar.request('browse', { path: params.path }, { timeout: 30000 })
       case 'load_paths':
         return this.sidecar.request('load_paths', {
-          paths: params.paths, subject: params.subject, origin,
+          paths: params.paths, subject: params.subject,
+          keep_surfaces: params.keepSurfaces ?? params.keep_surfaces, origin,
         }, { timeout: 180000 })
       case 'sources':
         return this.sidecar.request('sources', {}, { timeout: 60000 })
@@ -317,11 +318,17 @@ class Bridge {
       case 'colorbar':
         return this.sidecar.request('colorbar', {
           colormap: params.colormap, n: params.n, reverse: params.reverse,
+          lo: params.lo, hi: params.hi, threshold: params.threshold,
+          sign: params.sign, alpha: params.alpha, panes: params.panes,
         }, { timeout: 30000 })
       case 'clear_preview':
         return this.sidecar.request('clear_preview', {}, { timeout: 30000 })
       case 'load_entry':
-        return this.sidecar.request('load_entry', { path: params.path, origin }, { timeout: 180000 })
+        return this.sidecar.request('load_entry', {
+          path: params.path, keep_surfaces: params.keepSurfaces ?? params.keep_surfaces, origin,
+        }, { timeout: 180000 })
+      case 'clear_surfaces':
+        return this.sidecar.request('clear_surfaces', { origin }, { timeout: 60000 })
       case 'add_subject':
         return this.sidecar.request('add_subject', {
           path: params.path, origin,
@@ -608,6 +615,10 @@ function makeTools(bridge, options) {
         properties: {
           paths: { type: 'array', items: { type: 'string' }, description: 'Dataset file paths to load, in order.' },
           subject: { type: 'string', description: 'FreeSurfer subject directory to load surfaces from.' },
+          keepSurfaces: {
+            type: 'boolean',
+            description: 'Keep the currently loaded subject when loading dataset files. Default false: a dataset-only load unloads stale surfaces.',
+          },
         },
         required: [],
       },
@@ -618,12 +629,40 @@ function makeTools(bridge, options) {
       async execute(args) {
         const paths = Array.isArray(args.paths) ? args.paths.filter(item => typeof item === 'string' && item.trim()) : []
         if (!paths.length && !args.subject) throw new Error('ffs_viewer_load needs paths and/or subject')
-        const result = await bridge.call('load_paths', { paths, subject: args.subject }, origin)
+        const result = await bridge.call('load_paths', { paths, subject: args.subject, keepSurfaces: args.keepSurfaces === true }, origin)
         const state = result.state
         return [
           `loaded ${result.loaded.length ? result.loaded.join(', ') : '(no new layers)'}${result.subject ? ` · surfaces ${result.subject}` : ''}`,
           summarize(state),
         ].join('\n')
+      },
+    },
+    {
+      name: 'ffs_viewer_surfaces',
+      description: [
+        'Inspect or unload the viewer\'s FreeSurfer subject. `clear` unloads the subject and',
+        'hides its slice outlines; the Scene card then reports no subject. Loading a dataset',
+        '(without a subject) also clears stale surfaces automatically.',
+      ].join('\n'),
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['clear'],
+            description: 'clear: unload the loaded subject and its outlines.',
+          },
+        },
+        required: ['action'],
+      },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => renderText(toolResultText(value)),
+      },
+      async execute(args) {
+        if (args.action !== 'clear') throw new Error(`unknown action ${JSON.stringify(args.action)}`)
+        const result = await bridge.call('clear_surfaces', {}, origin)
+        return [`surfaces ${result.cleared ? 'cleared' : 'already empty'}`, summarize(result.state)].join('\n')
       },
     },
     {
