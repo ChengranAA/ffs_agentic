@@ -58,6 +58,16 @@ class SidecarError(Exception):
         self.details = details or {}
 
 
+def _is_surface_command_name(name: str) -> bool:
+    upper = str(name).upper()
+    return "SURFACE" in upper or upper.startswith("SET_OUTLINE")
+
+
+def _line_is_surface_command(line: str) -> bool:
+    parts = str(line).strip().split()
+    return bool(parts) and _is_surface_command_name(parts[0])
+
+
 class Sidecar:
     def __init__(self, project_root: Path, state_dir: Path, *, autosave: bool = True) -> None:
         self.project_root = Path(project_root)
@@ -903,7 +913,22 @@ class Sidecar:
             return False
         self.session.surfaces.clear()
         self.session.state.surfaces_shown = ()
+        # The saved replay script is rendered from the command-bus log: drop every recorded
+        # surface command, or the next restore resurrects the subject or fails on a missing hemi.
+        self._prune_surface_log()
         return True
+
+    def _prune_surface_log(self) -> None:
+        """Drop every recorded surface/outline command from the replay logs."""
+        assert self.session is not None
+        bus = getattr(self.session, "bus", None)
+        log = getattr(bus, "_log", None)
+        if isinstance(log, list):
+            log[:] = [cmd for cmd in log if not _is_surface_command_name(getattr(cmd, "name", ""))]
+        self.command_log = [
+            entry for entry in self.command_log
+            if not _line_is_surface_command(entry.get("line", ""))
+        ]
 
     def clear_surfaces(self, params: dict) -> dict:
         """Unload the loaded FreeSurfer subject; the Scene card then reports no subject."""
@@ -1174,10 +1199,15 @@ class Sidecar:
         assert self.session is not None
         if self.meta["workspace"] is None:
             self.meta["workspace"] = persist.default_workspace(self.session)
+        # A saved state must not resurrect a subject that was explicitly unloaded:
+        # drop surface-load lines from the replay log while no subject is loaded.
+        if self.session.surfaces.subject is None:
+            self._prune_surface_log()
+        command_log = self.command_log
         result = persist.save_state(
             self.session,
             state_dir=self.state_dir,
-            command_log=self.command_log,
+            command_log=command_log,
             workspace=self.meta["workspace"],
             note=note,
         )
@@ -1194,6 +1224,8 @@ class Sidecar:
         self.meta = self._fresh_meta()
         self.ensure_session()
         result = persist.restore_state(self.session, self.state_dir)
+        if self.session.surfaces.subject is None:
+            self.session.state.surfaces_shown = ()
         if result.get("restored"):
             self.command_log = result.pop("log", [])
             self.meta["workspace"] = result.get("workspace") or persist.default_workspace(self.session)
