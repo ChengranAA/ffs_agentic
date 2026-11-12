@@ -757,24 +757,35 @@ window.__ModuleLoader__.load({
           return
         }
         try {
-          const paths = [results.meanPath, results.statsPath].filter(Boolean)
-          await callViewer('load_paths', { paths })
+          const display = []
+          if (results.meanPath) display.push(`SET_UNDERLAY ${results.meanPath}`)
+          display.push(`SET_OVERLAY ${results.statsPath}`)
+          // Underlay/overlay are replaced by path; read the new keys AFTER, never before.
+          await callViewer('execute_batch', { lines: display })
           const state = await callViewer('state', {})
           const layers = Array.isArray(state?.layers) ? state.layers : []
-          const statsLayer = layers.find((layer) => layer.path === results.statsPath)
-            || layers.find((layer) => layer.name && results.statsPath.endsWith(`/${layer.name}`))
+          const overlay = [...layers].reverse().find((layer) => layer.path === results.statsPath && /^O/.test(layer.key))
+            || [...layers].reverse().find((layer) => layer.path === results.statsPath)
           const lines = []
-          if (results.meanPath) lines.push(`SET_UNDERLAY ${results.meanPath}`)
-          lines.push(`SET_OVERLAY ${results.statsPath}`)
-          if (statsLayer) {
-            lines.push(`SET_VOLUME ${statsLayer.key} ${contrast.subBrickIndex ?? 0}`)
-            lines.push(`SET_THRESHOLD ${statsLayer.key} ${contrast.threshold ?? results.threshold ?? 3.1}`)
-            lines.push(`SET_SIGN ${statsLayer.key} pos`)
-            lines.push(`SET_COLORMAP ${statsLayer.key} hot`)
+          if (overlay) {
+            lines.push(`SET_VOLUME ${overlay.key} ${contrast.subBrickIndex ?? 0}`)
+            lines.push(`SET_THRESHOLD ${overlay.key} ${contrast.threshold ?? results.threshold ?? 3.1}`)
+            lines.push(`SET_SIGN ${overlay.key} pos`)
+            lines.push(`SET_COLORMAP ${overlay.key} hot`)
           }
           const target = jumpIJK || contrast.peakIJK
           if (Array.isArray(target) && target.length === 3) lines.push(`SET_IJK ${target.join(' ')}`)
-          await callViewer('execute_batch', { lines })
+          if (lines.length) await callViewer('execute_batch', { lines })
+
+          // Remove duplicate layers accumulated by earlier inspect calls (same files, not U/O).
+          const duplicates = layers
+            .filter((layer) => layer.path === results.meanPath || layer.path === results.statsPath)
+            .filter((layer) => !/^[UO]/.test(layer.key))
+          if (duplicates.length) {
+            await callViewer('execute_batch', {
+              lines: duplicates.map((layer) => `REMOVE_LAYER ${layer.key}`),
+            }).catch(() => {})
+          }
           openViewer()
           setToast(`Viewer · ${contrast.name || 'results'}`)
         } catch (e) {
