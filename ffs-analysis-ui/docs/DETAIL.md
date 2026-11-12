@@ -16,7 +16,7 @@ snapshot built from the ds005165 run documented in
 
 | Section | Shows |
 |---|---|
-| Pipeline | run card, stage timeline (`stage02` … `stage12`), elapsed time, script and log tail |
+| Pipeline | run card, stage flow (`stage02` … `stage12`, numbered nodes on a rail), elapsed time, script and log tail |
 | Data | artifact table with kind/stage/size, artifact detail with path and display hints, **Load in viewer** |
 | QC | QC figures (motion, tSNR, carpet) and the note about CPU-only QC on this Mac |
 | Results | REML model summary, contrasts and peak, preview montage, empty cluster-table state |

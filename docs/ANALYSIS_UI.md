@@ -83,13 +83,14 @@ sections are filtered by the currently selected subject.
 
 ### Pipeline
 - Run cards: subject/session, recipe, flags, status, elapsed; one card per pipeline attempt.
-- **Stage timeline**: chips for the emitted stages (`stage00`…`stage12`, plus `stage10s`/`stage12s`
-  when surfaces are on) with `done / running / skipped / failed / pending`; click a chip for
-  duration, command line, and that stage's log window.
+- **Stage flow**: the emitted stages (`stage00`…`stage12`, plus `stage10s`/`stage12s` when
+  surfaces are on) as numbered nodes on a connected rail, colored by state (`done / running /
+  skipped / failed / pending`); click a node for its label, duration and status. A vertical
+  flow, not a chip row, because the sidebar is narrow and the order is the point.
 - Live progress from the DSH job: bar, current stage, elapsed, and a **Cancel** action.
 - Actions: `Plan`, `Run`, `Resume`, `Open script`, `Replay stage`, `Reveal work dir`
   (via the existing open-in-app service).
-- Failure: red chip + the last 40 log lines + the failing command, with "hand to agent".
+- Failure: the failing node turns red, with the last 40 log lines and the failing command, and "hand to agent".
 
 ### Data
 - Artifact table: filter by kind/space/stage/subject; columns name, kind, space, stage,

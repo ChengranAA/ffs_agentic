@@ -139,15 +139,36 @@ window.__ModuleLoader__.load({
 .ffa-dot.is-running { background: var(--dsw-alias-brand-primary); }
 .ffa-progress { height: 6px; border-radius: 3px; background: var(--dsw-alias-bg-layer-2); overflow: hidden; }
 .ffa-progress > span { display: block; height: 100%; background: var(--dsw-alias-brand-primary); }
-.ffa-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.ffa-chip { display: inline-flex; flex-direction: column; gap: 0; min-width: 64px; padding: 3px 7px;
-  border-radius: 6px; border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-2); }
-.ffa-chip-name { font-size: 10px; font-weight: 600; }
-.ffa-chip-label { color: var(--dsw-alias-label-secondary); font-size: 9px; }
-.ffa-chip.is-done { border-color: var(--dsw-alias-state-success-primary); }
-.ffa-chip.is-running { border-color: var(--dsw-alias-brand-primary); }
-.ffa-chip.is-failed { border-color: var(--dsw-alias-state-error-primary); }
-.ffa-chip.is-pending { opacity: .65; }
+.ffa-flow { display: flex; flex-direction: column; gap: 6px; }
+.ffa-flow-list { display: flex; flex-direction: column; }
+.ffa-flow-step { display: flex; align-items: center; gap: 8px; width: 100%; padding: 2px 6px 2px 2px;
+  border: 1px solid transparent; border-radius: 7px; background: transparent; color: inherit; font: inherit;
+  text-align: left; cursor: pointer; }
+.ffa-flow-step:hover { background: var(--dsw-alias-bg-layer-2); }
+.ffa-flow-step.is-selected { background: var(--dsw-alias-bg-layer-2); border-color: var(--dsw-alias-brand-primary); }
+.ffa-flow-rail { position: relative; width: 24px; min-height: 26px; display: flex; align-items: center;
+  justify-content: center; align-self: stretch; }
+.ffa-flow-rail::before { content: ''; position: absolute; top: 0; bottom: 0; width: 1px;
+  background: var(--dsw-alias-border-l1); }
+.ffa-flow-step:first-child .ffa-flow-rail::before { top: 50%; }
+.ffa-flow-step:last-child .ffa-flow-rail::before { bottom: 50%; }
+.ffa-flow-node { position: relative; z-index: 1; width: 22px; height: 22px; border-radius: 50%;
+  border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1);
+  display: flex; align-items: center; justify-content: center;
+  font: 9px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--dsw-alias-label-secondary); }
+.ffa-flow-node.is-done { border-color: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-state-success-primary); }
+.ffa-flow-node.is-running { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary);
+  box-shadow: 0 0 0 2px var(--dsw-alias-bg-base), 0 0 0 3px var(--dsw-alias-brand-primary); }
+.ffa-flow-node.is-failed { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
+.ffa-flow-node.is-pending { opacity: .65; }
+.ffa-flow-text { display: flex; flex-direction: column; min-width: 0; gap: 0; }
+.ffa-flow-name { font-size: 11px; font-weight: 600; }
+.ffa-flow-label { font-size: 9px; color: var(--dsw-alias-label-secondary); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.ffa-flow-time { margin-left: auto; font: 9px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--dsw-alias-label-secondary); white-space: nowrap; }
+.ffa-flow-detail { display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+  border: 1px solid var(--dsw-alias-border-l1); border-radius: 7px; background: var(--dsw-alias-bg-layer-2); }
 .ffa-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 .ffa-table th { text-align: left; font-weight: 500; color: var(--dsw-alias-label-secondary); font-size: 10px;
   padding: 4px 6px; border-bottom: 1px solid var(--dsw-alias-border-l1); }
@@ -337,6 +358,34 @@ window.__ModuleLoader__.load({
     }
 
     // ---------------------------------------------------------------- sections
+    function StageFlow({ stages, t }) {
+      const [pickedName, setPickedName] = useState(null)
+      const fallback = stages.find((stage) => stage.status === 'running') || stages[stages.length - 1] || null
+      const selected = stages.find((stage) => stage.name === pickedName) || fallback
+      return h('div', { className: 'ffa-flow' },
+        h('div', { className: 'ffa-flow-list' }, stages.map((stage, index) => h('button', {
+          key: stage.name,
+          type: 'button',
+          className: `ffa-flow-step${selected && selected.name === stage.name ? ' is-selected' : ''}`,
+          'aria-pressed': Boolean(selected && selected.name === stage.name),
+          onClick: () => setPickedName(stage.name),
+        },
+        h('span', { className: 'ffa-flow-rail', 'aria-hidden': true },
+          h('span', { className: `ffa-flow-node is-${stage.status || 'pending'}` }, String(index + 1).padStart(2, '0'))),
+        h('span', { className: 'ffa-flow-text' },
+          h('span', { className: 'ffa-flow-name' }, stage.name),
+          h('span', { className: 'ffa-flow-label' }, stage.label || '')),
+        h('span', { className: 'ffa-flow-time' }, formatSeconds(stage.seconds))))),
+        selected
+          ? h('div', { className: 'ffa-flow-detail' },
+            h(StatusPill, { status: selected.status }),
+            h('span', { className: 'ffa-small' }, selected.label || ''),
+            h('span', { className: 'ffa-small ffa-muted' }, formatSeconds(selected.seconds)),
+            h('span', { className: 'ffa-spacer' }),
+            h('span', { className: 'ffa-small ffa-muted' }, selected.name))
+          : null)
+    }
+
     function PipelineSection({ snap, t }) {
       const pipeline = snap.pipeline || {}
       const stages = Array.isArray(pipeline.stages) ? pipeline.stages : []
@@ -350,11 +399,7 @@ window.__ModuleLoader__.load({
             h('span', { className: 'ffa-muted ffa-small' }, `${t('elapsed')} ${formatSeconds(pipeline.elapsedSeconds)}`),
             h('span', { className: 'ffa-muted ffa-small' }, `${stages.length} ${t('stages')}`)),
           h('div', { className: 'ffa-progress' }, h('span', { style: { width: `${completion}%` } })),
-          h('div', { className: 'ffa-chips' }, stages.map((stage) => h('div', {
-            key: stage.name,
-            className: `ffa-chip is-${stage.status || 'pending'}`,
-            title: `${stage.label || ''}${stage.seconds ? ` · ${formatSeconds(stage.seconds)}` : ''}`,
-          }, h('span', { className: 'ffa-chip-name' }, stage.name), h('span', { className: 'ffa-chip-label' }, stage.label || ''))))),
+          h(StageFlow, { stages, t })),
         h(Card, { title: t('script') },
           h('dl', { className: 'ffa-kv' },
             h('dt', null, t('script')),
