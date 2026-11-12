@@ -2,14 +2,15 @@
 
 Status: **draft for review** — the UI half of [WORKFLOW.md](WORKFLOW.md).
 
-**U0/U1 prototype:** [`ffs-analysis-ui/`](../ffs-analysis-ui/) is installed as a bundle. It
-serves a fixture snapshot from the ds005165 run, and becomes **live** after
-`POST /ffs-analysis/plan` (or the `ffs_analysis_plan` tool) generates an `ffs_autoproc` plan —
-script and design specs only, no execution. The live snapshot is parsed from the generated
-script, its log and the work directory; the plan is recorded in
-`work/ffs-analysis-project.json`. The tab's **Plan pipeline / Re-plan** button drives it,
-article loading goes to the viewer, and `ffs_analysis_show` reveals the tab. Open it from
-**Analysis** in the Session header or the sidebar tab guide.
+**U0–U2 prototype:** [`ffs-analysis-ui/`](../ffs-analysis-ui/) is installed as a bundle. It
+serves a fixture snapshot from the ds005165 run and becomes **live** after
+`POST /ffs-analysis/plan` generates an `ffs_autoproc` plan (script only). **Run** then
+executes that script as one managed child process, streams its output to the script log, and
+the tab polls the snapshot every 2 s for live stage status and progress; **Cancel** signals
+the process group. The live snapshot is parsed from the generated script, the log and the
+work directory; plan/run state lives in `work/ffs-analysis-project.json` and
+`work/ffs-analysis-run.json`. Artifact loading goes to the viewer, and `ffs_analysis_show`
+reveals the tab. Open it from **Analysis** in the Session header or the sidebar tab guide.
 
 The workflow design covered execution, provenance, and plugin contracts. This document
 covers what the user actually looks at: a dedicated inspection surface for the pipeline,
@@ -91,10 +92,14 @@ sections are filtered by the currently selected subject.
   skipped / failed / pending`); click a node for its label, duration and status. A vertical
   flow, not a chip row, because the sidebar is narrow and the order is the point.
 - Live progress from the DSH job: bar, current stage, elapsed, and a **Cancel** action.
-- Actions: **Plan pipeline / Re-plan** (live; `ffs_autoproc`, no execution), then
-  `Run`, `Resume`, `Open script`, `Replay stage`, `Reveal work dir` (M2, via the existing
-  open-in-app service). A live snapshot's flow is parsed from the generated script; a stale
-  log marks the stages pending rather than pretending the plan ran.
+- Actions: **Plan pipeline / Re-plan** (`ffs_autoproc`, no execution), **Run** (managed
+  child process), **Cancel** (process-group signal); `Resume`, `Open script`,
+  `Replay stage`, `Reveal work dir` follow. A live snapshot's flow is parsed from the
+  generated script and the running log; a stale log marks the stages pending rather than
+  pretending the plan ran.
+- Progress: the run card shows percent, current stage and elapsed; the flow's current node
+  is `running`, completed nodes are `done`, a failed stage is `failed`, and the log tail
+  updates from the run's stdout/stderr.
 - Failure: the failing node turns red, with the last 40 log lines and the failing command, and "hand to agent".
 
 ### Data

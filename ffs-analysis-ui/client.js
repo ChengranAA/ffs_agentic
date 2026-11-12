@@ -81,6 +81,12 @@ window.__ModuleLoader__.load({
       planning: 'Planning…',
       planDone: 'Plan generated',
       planFailed: 'Plan failed',
+      run: 'Run pipeline',
+      runStarted: 'Run started',
+      runFailed: 'Run failed',
+      cancel: 'Cancel',
+      cancelRequested: 'Cancel requested',
+      current: 'current',
       sourceLive: 'live',
       sourceFixture: 'fixture',
       loadFailed: 'Load failed',
@@ -105,6 +111,7 @@ window.__ModuleLoader__.load({
 .ffa-btn-primary { background: var(--dsw-alias-brand-primary); color: var(--dsw-alias-bg-base);
   border-color: var(--dsw-alias-brand-primary); font-weight: 600; }
 .ffa-btn-primary:hover { filter: brightness(1.08); }
+.ffa-btn-danger:hover { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
 .ffa-open-btn { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; border-radius: 6px;
   border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-primary); cursor: pointer; font: inherit; font-size: 12px; white-space: nowrap; }
@@ -237,8 +244,8 @@ window.__ModuleLoader__.load({
 
     function statusClass(status) {
       if (status === 'completed' || status === 'done') return 'ok'
-      if (status === 'running') return 'running'
-      if (status === 'failed' || status === 'error') return 'error'
+      if (status === 'running' || status === 'stopping') return 'running'
+      if (status === 'failed' || status === 'error' || status === 'stopped') return 'error'
       if (status === 'warn' || status === 'warning' || status === 'draft') return 'warn'
       return 'idle'
     }
@@ -300,7 +307,7 @@ window.__ModuleLoader__.load({
           }
         }
         tick()
-        const timer = setInterval(tick, 10000)
+        const timer = setInterval(tick, 2000)
         return () => { alive = false; clearInterval(timer) }
       }, [read])
 
@@ -397,7 +404,7 @@ window.__ModuleLoader__.load({
           : null)
     }
 
-    function PipelineSection({ snap, t, onPlan, planning }) {
+    function PipelineSection({ snap, t, onPlan, planning, onRun, onCancel, runningNow, busyRun }) {
       const pipeline = snap.pipeline || {}
       const stages = Array.isArray(pipeline.stages) ? pipeline.stages : []
       const completion = stages.length
@@ -413,10 +420,26 @@ window.__ModuleLoader__.load({
             h('button', {
               className: 'ffa-btn',
               onClick: onPlan,
-              disabled: planning,
+              disabled: planning || runningNow,
               title: 'Generate a new ffs_autoproc plan (script only, no execution)',
-            }, planning ? t('planning') : (snap.source === 'live' ? t('replan') : t('plan')))),
-          h('div', { className: 'ffa-progress' }, h('span', { style: { width: `${completion}%` } })),
+            }, planning ? t('planning') : (snap.source === 'live' ? t('replan') : t('plan'))),
+            runningNow
+              ? h('button', {
+                className: 'ffa-btn ffa-btn-danger',
+                onClick: onCancel,
+                disabled: busyRun,
+              }, busyRun ? '…' : t('cancel'))
+              : h('button', {
+                className: 'ffa-btn ffa-btn-primary',
+                onClick: onRun,
+                disabled: planning || busyRun,
+                title: 'Execute the generated script',
+              }, busyRun ? '…' : t('run'))),
+          pipeline.currentStage || pipeline.error
+            ? h('div', { className: 'ffa-small ffa-muted', style: pipeline.error ? { color: 'var(--dsw-alias-state-error-primary)' } : null },
+              pipeline.error || `${t('current')} · ${pipeline.currentStage}`)
+            : null,
+          h('div', { className: 'ffa-progress' }, h('span', { style: { width: `${typeof pipeline.progress === 'number' ? pipeline.progress : completion}%` } })),
           h(StageFlow, { stages, t }),
           snap.note ? h('div', { className: 'ffa-small ffa-muted' }, snap.note) : null),
         h(Card, { title: t('script') },
@@ -594,6 +617,7 @@ window.__ModuleLoader__.load({
       const [section, setSection] = useState('pipeline')
       const [busy, setBusy] = useState(null)
       const [planning, setPlanning] = useState(false)
+      const [busyRun, setBusyRun] = useState(false)
       const [toast, setToast] = useState(null)
 
       useEffect(() => {
@@ -621,6 +645,50 @@ window.__ModuleLoader__.load({
           setToast(`${t('planFailed')}: ${e && e.message || e}`)
         } finally {
           setPlanning(false)
+        }
+      }, [refresh, t])
+
+      const runPipeline = useCallback(async () => {
+        setBusyRun(true)
+        try {
+          const res = await fetch('/ffs-analysis/run', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+          })
+          const payload = await res.json().catch(() => null)
+          if (!res.ok || !payload || payload.ok !== true) {
+            throw new Error(payload?.error?.message || `run failed (${res.status})`)
+          }
+          setToast(t('runStarted'))
+          await refresh()
+        } catch (e) {
+          setToast(`${t('runFailed')}: ${e && e.message || e}`)
+        } finally {
+          setBusyRun(false)
+        }
+      }, [refresh, t])
+
+      const cancelPipeline = useCallback(async () => {
+        setBusyRun(true)
+        try {
+          const res = await fetch('/ffs-analysis/cancel', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+          })
+          const payload = await res.json().catch(() => null)
+          if (!res.ok || !payload || payload.ok !== true) {
+            throw new Error(payload?.error?.message || `cancel failed (${res.status})`)
+          }
+          setToast(t('cancelRequested'))
+          await refresh()
+        } catch (e) {
+          setToast(`${t('runFailed')}: ${e && e.message || e}`)
+        } finally {
+          setBusyRun(false)
         }
       }, [refresh, t])
 
@@ -678,6 +746,7 @@ window.__ModuleLoader__.load({
       }
 
       const pipeline = snap.pipeline || {}
+      const runningNow = pipeline.status === 'running' || pipeline.status === 'stopping'
       const counts = {
         pipeline: Array.isArray(pipeline.stages) ? pipeline.stages.length : 0,
         data: Array.isArray(snap.artifacts) ? snap.artifacts.length : 0,
@@ -688,7 +757,7 @@ window.__ModuleLoader__.load({
       }
 
       let content
-      if (section === 'pipeline') content = h(PipelineSection, { snap, t, onPlan: planPipeline, planning })
+      if (section === 'pipeline') content = h(PipelineSection, { snap, t, onPlan: planPipeline, planning, onRun: runPipeline, onCancel: cancelPipeline, runningNow, busyRun })
       else if (section === 'data') content = h(DataSection, { snap, t, onLoad: loadIntoViewer, onCopy: copyPath, busy })
       else if (section === 'qc') content = h(QcSection, { snap, t })
       else if (section === 'results') content = h(ResultsSection, { snap, t, onOpenViewer: openViewer })

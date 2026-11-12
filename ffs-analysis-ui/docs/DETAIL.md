@@ -28,8 +28,10 @@ snapshot built from the ds005165 run documented in
 
 - **Plan pipeline / Re-plan** posts to `/ffs-analysis/plan`, which runs `ffs_autoproc`
   (script + design specs only, no execution) and writes `work/ffs-analysis-project.json`.
-  The tab then serves the **live** snapshot: stages parsed from the generated script,
-  artifacts from the work directory, a stale log shown as pending rather than as a run.
+- **Run** posts to `/ffs-analysis/run`: the generated script runs as one managed child
+  process, stdout/stderr stream into the script log, and the snapshot reports status,
+  current stage, percent and the log tail. **Cancel** signals the process group.
+  Run state lives in `work/ffs-analysis-run.json`.
 - **Load in viewer** calls the FFS viewer's authenticated `/ffs` channel with
   `load_paths` and then reveals the viewer tab.
 - **Refresh** re-fetches `/ffs-analysis/snapshot`; the snapshot is polled every 10 s.
@@ -40,8 +42,10 @@ snapshot built from the ds005165 run documented in
   useful when no plan exists yet.
 - **Live** (`source: "live"`): after a plan, built from the real script/log/work dir. The
   header shows a `live`/`fixture` tag.
-- **No execution.** Run, QC, GLM, settle and export are still M2–M3; Plan generates the
-  script only.
+- **Execution is a plain child process** for this milestone (moving it under `ctx.jobs` is
+  next); there is no QC/GLM result extraction yet (M3), and settle/export is still open.
+- A cancelled run leaves partial outputs; the script is resumable, so Run again continues.
+- `-no_qc` is the default plan on this Mac: QC must run on CPU and is not part of this run.
 - **English UI only** (the `zh` locale covers the plugin metadata, not the tab body).
 - **Cluster tables, exports, cohort matrices for real cohorts** arrive with M3–M5 in
   [`../../docs/WORKFLOW.md`](../../docs/WORKFLOW.md).

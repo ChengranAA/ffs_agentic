@@ -1,19 +1,24 @@
 /**
  * FFS analysis — Host half.
  *
- * Serves the analysis tab's snapshot projection, fixture assets, and the first live action:
- * `POST /ffs-analysis/plan` runs `ffs_autoproc` **without execution** for a BIDS dataset and
- * records the generated plan in `work/ffs-analysis-project.json`. Once a plan exists the
- * snapshot is built from that real script/log/work dir; otherwise the rich fixture from the
- * ds005165 run is served.
+ * Serves the analysis tab's snapshot projection and three live actions:
  *
- * All requests are gated with `connection.admit(req)` (host/origin fence + browser cookie),
- * the same authenticated-route pattern the FFS viewer uses. File paths are validated to stay
- * inside the project root.
+ *   POST /ffs-analysis/plan    ffs_autoproc script generation (no execution)
+ *   POST /ffs-analysis/run     execute the generated script as one managed child process
+ *   POST /ffs-analysis/cancel  stop it (process group)
+ *
+ * The snapshot is built from the project plan (`work/ffs-analysis-project.json`), the run
+ * state (`work/ffs-analysis-run.json`), the generated script and its log. With no plan it
+ * falls back to the ds005165 fixture.
+ *
+ * All requests are gated with `connection.admit(req)` (host/origin + browser cookie), the
+ * same authenticated-route pattern the FFS viewer uses; file paths are validated to stay
+ * inside the project root. The run is a plain child process for this milestone; moving it
+ * under `ctx.jobs` (Jobs panel, owner fencing) is the follow-up.
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -27,18 +32,8 @@ const FIXTURE_DIR = path.join(PKG_DIR, 'fixtures')
 const FIXTURE_FILE = path.join(FIXTURE_DIR, 'demo.json')
 const ROUTE = '/ffs-analysis'
 
-const CONTENT_TYPES = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.svg': 'image/svg+xml',
-  '.json': 'application/json; charset=utf-8',
-  '.txt': 'text/plain; charset=utf-8',
-}
-
 const RECIPES = ['bare_bones', 'simple', 'simple_linear', 'simple_nonlin', 'complete', 'extreme']
 
-/** Defaults for the plan action: the real ds005165 subset already downloaded for the test. */
 const PLAN_DEFAULTS = {
   bidsDir: 'data/real/ds005165',
   subject: '01',
@@ -47,6 +42,15 @@ const PLAN_DEFAULTS = {
   recipe: 'bare_bones',
   noQc: true,
   workDir: 'work/ds005165/sub-01',
+}
+
+const CONTENT_TYPES = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.json': 'application/json; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
 }
 
 /** Bumped by `ffs_analysis_show`; the Client half's always-mounted bridge reveals the tab. */
@@ -70,6 +74,7 @@ function findProjectRoot(start) {
 
 const PROJECT_ROOT = findProjectRoot(PKG_DIR)
 const PROJECT_STATE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-analysis-project.json')
+const RUN_STATE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-analysis-run.json')
 
 function resolveInside(rel, label = 'path') {
   const abs = path.resolve(PROJECT_ROOT, String(rel || ''))
@@ -79,7 +84,7 @@ function resolveInside(rel, label = 'path') {
   return abs
 }
 
-// ------------------------------------------------------------------ live snapshot
+// ------------------------------------------------------------------ script parsing
 const STAGE_RE = /echo '== (stage[0-9a-z]+):\s*(.*?)\s*=='/gm
 
 function parseStages(scriptText) {
@@ -87,32 +92,33 @@ function parseStages(scriptText) {
   let match
   while ((match = STAGE_RE.exec(scriptText))) {
     if (!seen.has(match[1])) {
-      seen.set(match[1], {
-        name: match[1],
-        label: match[2].replace(/\s+/g, ' ').trim(),
-      })
+      seen.set(match[1], { name: match[1], label: match[2].replace(/\s+/g, ' ').trim() })
     }
   }
-  return [...seen.values()]
+  const stages = [...seen.values()]
+  // The GLM stage is a commented block, not an `echo '== stage12'` banner.
+  if (!stages.some((stage) => stage.name === 'stage12') && /stage12:\s*GLM/.test(scriptText)) {
+    stages.push({ name: 'stage12', label: 'GLM (ffs_reml)' })
+  }
+  return stages
+}
+
+function logBanners(logText) {
+  return [...logText.matchAll(/^== (stage[0-9a-z]+):/gm)].map((match) => match[1])
 }
 
 function parseLog(logText) {
-  const done = new Set()
-  let totalSeconds = null
-  let finished = false
-  const stageRe = /^== (stage[0-9a-z]+):/gm
-  let match
-  while ((match = stageRe.exec(logText))) done.add(match[1])
-  const fin = /finished after (\d+):(\d+) \((\d+)s\)/.exec(logText)
-  if (fin) {
-    finished = true
-    totalSeconds = Number(fin[3])
-  } else if (/ffs_autoproc: FAILED/.test(logText)) {
-    finished = false
-  }
-  return { done, totalSeconds, finished }
+  const finished = /finished after \d+:\d+ \(\d+s\)/.test(logText)
+  const failed = /ffs_autoproc: FAILED/.test(logText)
+  return { finished, failed }
 }
 
+function tailLines(text, count) {
+  const lines = String(text || '').split('\n').map((line) => line.trim()).filter(Boolean)
+  return lines.slice(-count)
+}
+
+// ------------------------------------------------------------------ artifacts
 function artifactKind(name) {
   if (name.endsWith('.sh')) return 'script'
   if (name.endsWith('.log')) return 'log'
@@ -140,7 +146,13 @@ function artifactHint(kind) {
 
 function listArtifacts(workAbs) {
   const artifacts = []
-  for (const entry of readdirSync(workAbs, { withFileTypes: true })) {
+  let entries = []
+  try {
+    entries = readdirSync(workAbs, { withFileTypes: true })
+  } catch {
+    return artifacts
+  }
+  for (const entry of entries) {
     if (!entry.isFile()) continue
     if (!/\.(nii\.gz|nii|sh|log|toml|json)$/i.test(entry.name)) continue
     const abs = path.join(workAbs, entry.name)
@@ -169,55 +181,162 @@ function listArtifacts(workAbs) {
 function listQcFigures(workAbs) {
   const qcDir = path.join(workAbs, 'qc')
   if (!existsSync(qcDir)) return []
-  return readdirSync(qcDir)
-    .filter((name) => /\.(png|jpe?g)$/i.test(name))
-    .slice(0, 6)
-    .map((name) => ({
-      id: `qc.${name}`,
-      label: name.replace(/\.(png|jpe?g)$/i, ''),
-      caption: 'FFS QC (CPU)',
-      asset: `qc/${name}`,
-    }))
+  try {
+    return readdirSync(qcDir)
+      .filter((name) => /\.(png|jpe?g)$/i.test(name))
+      .slice(0, 6)
+      .map((name) => ({
+        id: `qc.${name}`,
+        label: name.replace(/\.(png|jpe?g)$/i, ''),
+        caption: 'FFS QC (CPU)',
+        asset: `qc/${name}`,
+      }))
+  } catch {
+    return []
+  }
 }
 
-function tailLines(text, count) {
-  const lines = text.split('\n').map((line) => line.trim()).filter(Boolean)
-  return lines.slice(-count)
+// ------------------------------------------------------------------ project / run state
+function readProjectState() {
+  if (!existsSync(PROJECT_STATE_FILE)) return null
+  try {
+    const state = JSON.parse(readFileSync(PROJECT_STATE_FILE, 'utf8'))
+    if (!state || !state.script || !state.workDir || !state.params) return null
+    return state
+  } catch {
+    return null
+  }
+}
+
+function writeProjectState(state) {
+  mkdirSync(path.dirname(PROJECT_STATE_FILE), { recursive: true })
+  writeFileSync(PROJECT_STATE_FILE, `${JSON.stringify(state, null, 2)}\n`)
+  return state
+}
+
+let RUN = null
+
+function persistRun() {
+  try {
+    mkdirSync(path.dirname(RUN_STATE_FILE), { recursive: true })
+    writeFileSync(RUN_STATE_FILE, `${JSON.stringify(RUN, null, 2)}\n`)
+  } catch (error) {
+    console.error('[ffs-analysis] could not persist run state:', error)
+  }
+}
+
+function ensureRunLoaded() {
+  if (RUN) return RUN
+  if (!existsSync(RUN_STATE_FILE)) return null
+  try {
+    RUN = JSON.parse(readFileSync(RUN_STATE_FILE, 'utf8'))
+  } catch {
+    RUN = null
+    return null
+  }
+  if (RUN && (RUN.status === 'running' || RUN.status === 'stopping')) {
+    // The child cannot survive a Host reload; never report a phantom run.
+    RUN.status = 'failed'
+    RUN.finishedAt = RUN.finishedAt || new Date().toISOString()
+    RUN.error = RUN.error || 'Host reloaded while the run was active'
+    persistRun()
+  }
+  return RUN
+}
+
+function isRunActive() {
+  const run = ensureRunLoaded()
+  return Boolean(run && (run.status === 'running' || run.status === 'stopping'))
+}
+
+// ------------------------------------------------------------------ snapshot
+function runLogPath(state) {
+  const scriptAbs = resolveInside(state.script, 'script')
+  return state.log ? resolveInside(state.log, 'log') : scriptAbs.replace(/\.sh$/, '.log')
+}
+
+/** Merge the plan + the managed run into the stage flow. */
+function runView(state) {
+  const run = ensureRunLoaded()
+  const scriptAbs = resolveInside(state.script, 'script')
+  const logAbs = runLogPath(state)
+  const scriptText = existsSync(scriptAbs) ? readFileSync(scriptAbs, 'utf8') : ''
+  const logText = existsSync(logAbs) ? readFileSync(logAbs, 'utf8') : ''
+  const parsed = parseStages(scriptText)
+  const scriptMtime = existsSync(scriptAbs) ? statSync(scriptAbs).mtimeMs : 0
+  const logMtime = existsSync(logAbs) ? statSync(logAbs).mtimeMs : 0
+  const logFresh = logMtime > 0 && logMtime >= scriptMtime
+
+  const status = run ? run.status : null
+  const running = status === 'running' || status === 'stopping'
+  const banners = logBanners(logText)
+  const current = running ? (banners[banners.length - 1] || null) : null
+
+  const done = new Set()
+  if (status === 'completed') {
+    for (const stage of parsed) done.add(stage.name)
+  } else if (running) {
+    for (const banner of banners.slice(0, -1)) done.add(banner)
+  } else if (logFresh) {
+    for (const banner of banners) done.add(banner)
+    if (parseLog(logText).finished) for (const stage of parsed) done.add(stage.name)
+  }
+
+  const failedStage = status === 'failed' && current ? current : null
+  const stages = parsed.map((stage) => ({
+    ...stage,
+    status: failedStage === stage.name
+      ? 'failed'
+      : done.has(stage.name)
+        ? 'done'
+        : (running && current === stage.name)
+          ? 'running'
+          : 'pending',
+  }))
+  const total = parsed.length || 1
+  const percent = Math.round((100 * done.size) / total)
+  const started = run?.startedAt ? Date.parse(run.startedAt) : 0
+  const finished = run?.finishedAt ? Date.parse(run.finishedAt) : 0
+  const elapsedSeconds = started
+    ? Math.max(0, Math.round(((finished || Date.now()) - started) / 1000))
+    : null
+
+  const pipelineStatus = status
+    || (parsed.length ? (logFresh && parseLog(logText).finished ? 'completed' : 'planned') : 'empty')
+
+  return {
+    status: pipelineStatus,
+    running,
+    stages,
+    currentStage: current,
+    percent,
+    elapsedSeconds,
+    logExcerpt: running || logFresh ? tailLines(logText, 12) : [],
+    error: run?.error || null,
+    startedAt: run?.startedAt || null,
+    finishedAt: run?.finishedAt || null,
+  }
 }
 
 function buildLiveSnapshot(state) {
   const workAbs = resolveInside(state.workDir, 'work dir')
-  const scriptAbs = resolveInside(state.script, 'script')
-  const logAbs = state.log ? resolveInside(state.log, 'log') : scriptAbs.replace(/\.sh$/, '.log')
-  const scriptText = existsSync(scriptAbs) ? readFileSync(scriptAbs, 'utf8') : ''
-  const logText = existsSync(logAbs) ? readFileSync(logAbs, 'utf8') : ''
-  const scriptMtime = existsSync(scriptAbs) ? statSync(scriptAbs).mtimeMs : 0
-  const logMtime = existsSync(logAbs) ? statSync(logAbs).mtimeMs : 0
-  // A regenerated script makes an older log stale: the plan is not a run.
-  const logFresh = logMtime > 0 && logMtime >= scriptMtime
-  const logInfo = logFresh ? parseLog(logText) : { done: new Set(), totalSeconds: null, finished: false }
-  const parsedStages = parseStages(scriptText)
-  // The GLM stage is a commented block in the emitted script, not an `echo '== stage12'`
-  // banner, so detect it from the section marker.
-  if (!parsedStages.some((stage) => stage.name === 'stage12') && /stage12:\s*GLM/.test(scriptText)) {
-    parsedStages.push({ name: 'stage12', label: 'GLM (ffs_reml)' })
-  }
-  const stages = parsedStages.map((stage) => ({
-    ...stage,
-    status: logInfo.done.has(stage.name) ? 'done' : 'pending',
-  }))
-  const artifacts = existsSync(workAbs) ? listArtifacts(workAbs) : []
-  const figures = existsSync(workAbs) ? listQcFigures(workAbs) : []
-  const pipelineStatus = !stages.length ? 'empty' : logInfo.finished ? 'completed' : 'planned'
+  const view = runView(state)
+  const artifacts = listArtifacts(workAbs)
+  const figures = listQcFigures(workAbs)
   const subjectId = `sub-${state.params.subject}`
-  const analyzed = logInfo.finished
+  const hasStats = artifacts.some((artifact) => artifact.kind === 'stats')
+  const notes = [
+    'Live project state, built from the generated script, its log and the work directory.',
+  ]
+  if (view.status === 'planned') {
+    notes.push('The script is newer than the log: the flow is the plan, not a completed run.')
+  }
+  if (view.running) notes.push('Run in progress; the flow and log update from the running script.')
 
   return {
     schema: 'ffs-analysis-live/1',
     source: 'live',
-    note: logFresh
-      ? 'Live project state, built from the generated script, its log and the work directory.'
-      : 'Planned from BIDS: the flow is the new plan. The work directory may still contain outputs from an earlier run until M2 executes this plan.',
+    note: notes.join(' '),
     rev: statSync(PROJECT_STATE_FILE).mtimeMs,
     showSeq,
     projectRoot: PROJECT_ROOT,
@@ -233,10 +352,14 @@ function buildLiveSnapshot(state) {
     },
     pipeline: {
       id: `pipe-${subjectId}`,
-      status: pipelineStatus,
+      status: view.status,
       recipe: state.params.recipe,
-      elapsedSeconds: logInfo.totalSeconds ?? null,
-      finishedAt: analyzed ? state.plannedAt : null,
+      progress: view.percent,
+      currentStage: view.currentStage,
+      elapsedSeconds: view.elapsedSeconds,
+      startedAt: view.startedAt,
+      finishedAt: view.finishedAt,
+      error: view.error,
       script: state.script,
       log: state.log,
       command: [
@@ -250,8 +373,17 @@ function buildLiveSnapshot(state) {
         `-work_dir ${state.params.workDir}`,
         `-out ${state.script}`,
       ].filter(Boolean).join(' '),
-      stages,
-      logExcerpt: logFresh ? tailLines(logText, 10) : [],
+      stages: view.stages,
+      logExcerpt: view.logExcerpt,
+    },
+    job: {
+      status: view.status,
+      running: view.running,
+      currentStage: view.currentStage,
+      percent: view.percent,
+      startedAt: view.startedAt,
+      finishedAt: view.finishedAt,
+      error: view.error,
     },
     artifacts,
     qc: {
@@ -262,15 +394,15 @@ function buildLiveSnapshot(state) {
       figures,
     },
     results: {
-      model: artifacts.some((artifact) => artifact.kind === 'stats') ? 'GLM bucket present' : '—',
+      model: hasStats ? 'GLM bucket present' : '—',
       voxelsInMask: null,
       meanR2: null,
       subBricks: null,
       contrasts: [],
       clusters: [],
-      clusterNote: artifacts.some((artifact) => artifact.kind === 'stats')
+      clusterNote: hasStats
         ? 'A GLM bucket exists in the work directory; contrast and cluster inspection lands with M3.'
-        : 'No GLM yet. Plan the pipeline, then run it (M2) to produce a stats bucket.',
+        : 'No GLM yet. Run the plan to produce a stats bucket.',
     },
     cohort: {
       status: 'live',
@@ -282,13 +414,13 @@ function buildLiveSnapshot(state) {
         id: subjectId,
         include: true,
         stages: {
-          stage02: logInfo.done.has('stage02') ? 'done' : 'pending',
-          stage10: logInfo.done.has('stage10') ? 'done' : 'pending',
-          firstLevel: logInfo.done.has('stage12') ? 'done' : 'pending',
+          stage02: view.stages.find((stage) => stage.name === 'stage02')?.status || 'pending',
+          stage10: view.stages.find((stage) => stage.name === 'stage10')?.status || 'pending',
+          firstLevel: view.stages.find((stage) => stage.name === 'stage12')?.status || 'pending',
           qc: figures.length ? 'done' : 'pending',
         },
         variants: [state.params.recipe],
-        note: pipelineStatus,
+        note: view.status,
       }],
     },
     group: {
@@ -326,23 +458,6 @@ function resolveFixture() {
   }
 }
 
-function readProjectState() {
-  if (!existsSync(PROJECT_STATE_FILE)) return null
-  try {
-    const state = JSON.parse(readFileSync(PROJECT_STATE_FILE, 'utf8'))
-    if (!state || !state.script || !state.workDir || !state.params) return null
-    return state
-  } catch {
-    return null
-  }
-}
-
-function writeProjectState(state) {
-  mkdirSync(path.dirname(PROJECT_STATE_FILE), { recursive: true })
-  writeFileSync(PROJECT_STATE_FILE, `${JSON.stringify(state, null, 2)}\n`)
-  return state
-}
-
 function readSnapshot() {
   const state = readProjectState()
   if (state) {
@@ -366,16 +481,20 @@ function snapshotSummary() {
       status: snapshot.pipeline?.status ?? null,
       recipe: snapshot.pipeline?.recipe ?? null,
       stages: Array.isArray(snapshot.pipeline?.stages) ? snapshot.pipeline.stages.length : 0,
+      progress: snapshot.pipeline?.progress ?? null,
+      currentStage: snapshot.pipeline?.currentStage ?? null,
     },
+    job: snapshot.job ?? null,
     artifacts: snapshot.artifacts?.length ?? 0,
     cohort: Array.isArray(snapshot.cohort?.subjects) ? snapshot.cohort.subjects.length : 0,
     groupAnalyses: Array.isArray(snapshot.group?.analyses) ? snapshot.group.analyses.length : 0,
     fixture: FIXTURE_FILE,
     state: PROJECT_STATE_FILE,
+    runState: RUN_STATE_FILE,
   }
 }
 
-// ------------------------------------------------------------------ plan action
+// ------------------------------------------------------------------ plan
 function planParams(overrides = {}) {
   const params = { ...PLAN_DEFAULTS }
   for (const key of Object.keys(PLAN_DEFAULTS)) {
@@ -411,29 +530,40 @@ function autoprocArgs(params) {
   return { args, bidsAbs, workAbs, outAbs }
 }
 
+function ffsEnv() {
+  const env = { ...process.env }
+  const shimDir = path.join(PROJECT_ROOT, 'work', 'bin')
+  if (existsSync(shimDir)) env.PATH = `${shimDir}${path.delimiter}${env.PATH || ''}`
+  env.MPLCONFIGDIR = env.MPLCONFIGDIR || path.join(PROJECT_ROOT, 'work', '.mpl')
+  try {
+    mkdirSync(env.MPLCONFIGDIR, { recursive: true })
+  } catch {
+    // non-fatal: QC is optional in this phase
+  }
+  env.PYTHONPATH = [
+    path.join(PROJECT_ROOT, 'python'),
+    path.join(PROJECT_ROOT, 'reference', 'fastfuncstuff'),
+    process.env.PYTHONPATH || '',
+  ].filter(Boolean).join(path.delimiter)
+  env.PYTHONUNBUFFERED = '1'
+  return env
+}
+
 function runPlan(overrides = {}) {
   let params
   let paths
   try {
+    if (isRunActive()) throw Object.assign(new Error('cannot re-plan while a run is active'), { code: 'run-busy' })
     params = planParams(overrides)
     paths = autoprocArgs(params)
   } catch (error) {
     return Promise.reject(error)
   }
   const python = process.env.FFS_PYTHON || path.join(PROJECT_ROOT, '.venv', 'bin', 'python')
-  const env = {
-    ...process.env,
-    PYTHONPATH: [
-      path.join(PROJECT_ROOT, 'python'),
-      path.join(PROJECT_ROOT, 'reference', 'fastfuncstuff'),
-      process.env.PYTHONPATH || '',
-    ].filter(Boolean).join(path.delimiter),
-    PYTHONUNBUFFERED: '1',
-  }
   return new Promise((resolve, reject) => {
     let child
     try {
-      child = spawn(python, paths.args, { cwd: PROJECT_ROOT, env })
+      child = spawn(python, paths.args, { cwd: PROJECT_ROOT, env: ffsEnv() })
     } catch (error) {
       reject(error)
       return
@@ -465,6 +595,9 @@ function runPlan(overrides = {}) {
         return
       }
       try {
+        // A new plan invalidates the previous run view.
+        RUN = null
+        persistRun()
         const scriptRel = path.relative(PROJECT_ROOT, paths.outAbs)
         const state = {
           source: 'live',
@@ -478,7 +611,6 @@ function runPlan(overrides = {}) {
         const snapshot = buildLiveSnapshot(state)
         resolve({
           ok: true,
-          showSeq,
           source: 'live',
           stages: snapshot.pipeline.stages.length,
           artifacts: snapshot.artifacts.length,
@@ -491,6 +623,95 @@ function runPlan(overrides = {}) {
       }
     })
   })
+}
+
+// ------------------------------------------------------------------ run
+function runSummary() {
+  ensureRunLoaded()
+  return {
+    ok: true,
+    status: RUN?.status || 'idle',
+    script: RUN?.script || null,
+    log: RUN?.log || null,
+    startedAt: RUN?.startedAt || null,
+    finishedAt: RUN?.finishedAt || null,
+    error: RUN?.error || null,
+  }
+}
+
+function startRun() {
+  ensureRunLoaded()
+  if (isRunActive()) throw Object.assign(new Error('a run is already in progress'), { code: 'run-busy' })
+  const state = readProjectState()
+  if (!state) throw Object.assign(new Error('no plan yet: use Plan pipeline first'), { code: 'not-planned' })
+  const scriptAbs = resolveInside(state.script, 'script')
+  if (!existsSync(scriptAbs)) throw Object.assign(new Error(`script not found: ${state.script}`), { code: 'not-planned' })
+  const workAbs = resolveInside(state.workDir, 'workDir')
+  const logAbs = runLogPath(state)
+  mkdirSync(path.dirname(logAbs), { recursive: true })
+  const out = createWriteStream(logAbs, { flags: 'w' })
+  let child
+  try {
+    child = spawn('/bin/bash', [scriptAbs], {
+      cwd: workAbs,
+      env: ffsEnv(),
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+  } catch (error) {
+    try { out.end() } catch { /* already closed */ }
+    throw Object.assign(error, { code: 'run-failed' })
+  }
+  RUN = {
+    status: 'running',
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    pid: child.pid,
+    script: state.script,
+    log: state.log,
+    workDir: state.workDir,
+    error: null,
+  }
+  persistRun()
+  const write = (chunk) => {
+    try { out.write(chunk) } catch { /* log stream gone */ }
+  }
+  child.stdout.on('data', write)
+  child.stderr.on('data', write)
+  child.on('error', (error) => {
+    RUN.status = 'failed'
+    RUN.error = String(error?.message || error)
+    RUN.finishedAt = new Date().toISOString()
+    try { out.end() } catch { /* already closed */ }
+    persistRun()
+  })
+  child.on('exit', (code, signal) => {
+    RUN.finishedAt = new Date().toISOString()
+    if (code === 0) RUN.status = 'completed'
+    else if (RUN.status === 'stopping' || signal) RUN.status = 'stopped'
+    else RUN.status = 'failed'
+    if (code !== 0 && !RUN.error) RUN.error = `exit ${code}${signal ? ` (${signal})` : ''}`
+    try { out.end() } catch { /* already closed */ }
+    persistRun()
+  })
+  return runSummary()
+}
+
+function cancelRun() {
+  ensureRunLoaded()
+  if (!RUN || (RUN.status !== 'running' && RUN.status !== 'stopping')) {
+    throw Object.assign(new Error('nothing is running'), { code: 'not-running' })
+  }
+  RUN.status = 'stopping'
+  persistRun()
+  try {
+    process.kill(-RUN.pid, 'SIGTERM')
+  } catch {
+    try { process.kill(RUN.pid, 'SIGTERM') } catch (error) {
+      throw Object.assign(new Error(`could not stop the run: ${error?.message || error}`), { code: 'cancel-failed' })
+    }
+  }
+  return runSummary()
 }
 
 // ------------------------------------------------------------------ transport
@@ -518,7 +739,7 @@ async function readJsonBody(req, limit = 65536) {
   return raw ? JSON.parse(raw) : {}
 }
 
-function serveFile(res, file, headers = { 'cache-control': 'no-store' }) {
+function serveFile(res, file) {
   if (!existsSync(file)) {
     writeText(res, 404, 'not found')
     return
@@ -527,7 +748,7 @@ function serveFile(res, file, headers = { 'cache-control': 'no-store' }) {
   res.writeHead(200, {
     'content-type': CONTENT_TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream',
     'content-length': body.length,
-    ...headers,
+    'cache-control': 'no-store',
   })
   res.end(body)
 }
@@ -543,13 +764,18 @@ function projectAssetFile(rel) {
   return file
 }
 
+function routeError(res, error) {
+  const status = error?.code === 'run-busy' ? 409 : error?.code === 'not-planned' || error?.code === 'not-running' ? 400 : 500
+  writeJson(res, status, { ok: false, error: { code: error?.code || 'failed', message: error?.message || String(error) } })
+}
+
+// ------------------------------------------------------------------ plugin
 export function apply(ctx) {
-  // One agent tool: lets the agent (and a verification step) confirm the tab's data source.
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_snapshot',
     description: [
-      'Read the FFS analysis inspection tab snapshot. Returns the source (fixture or the live',
-      'project plan), project, pipeline status, artifact count, cohort size and group count.',
+      'Read the FFS analysis inspection tab snapshot. Returns the source (fixture or live),',
+      'pipeline status/progress/current stage, artifact count, cohort and group counts.',
       'It does not run any computation.',
     ].join('\n'),
     parameters: { type: 'object', properties: {}, required: [] },
@@ -562,7 +788,6 @@ export function apply(ctx) {
     },
   }), 'ffs-analysis: snapshot tool')
 
-  // Generate an autoproc plan (script only, no execution).
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_plan',
     description: [
@@ -588,12 +813,39 @@ export function apply(ctx) {
       render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
     },
     async execute(args) {
-      const summary = await runPlan(args || {})
-      return JSON.stringify(summary, null, 1)
+      return JSON.stringify(await runPlan(args || {}), null, 1)
     },
   }), 'ffs-analysis: plan tool')
 
-  // Reveal the tab: bump showSeq; the Client half polls and calls openTab.
+  ctx.effect(() => ctx.tools.register({
+    name: 'ffs_analysis_run',
+    description: [
+      'Execute the current analysis plan: run the generated ffs script as one managed child',
+      'process, stream its output to the script log, and make the tab show live stage progress.',
+    ].join('\n'),
+    parameters: { type: 'object', properties: {}, required: [] },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    },
+    async execute() {
+      return JSON.stringify(startRun(), null, 1)
+    },
+  }), 'ffs-analysis: run tool')
+
+  ctx.effect(() => ctx.tools.register({
+    name: 'ffs_analysis_cancel',
+    description: 'Stop the analysis run currently in progress (process group signal).',
+    parameters: { type: 'object', properties: {}, required: [] },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    },
+    async execute() {
+      return JSON.stringify(cancelRun(), null, 1)
+    },
+  }), 'ffs-analysis: cancel tool')
+
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_show',
     description: 'Reveal the FFS analysis inspection tab in the right sidebar.',
@@ -608,8 +860,6 @@ export function apply(ctx) {
     },
   }), 'ffs-analysis: show tool')
 
-  // Fixture + live HTTP routes. `connection.rpc.handle()` is unusable in this profile (see
-  // the viewer's docs/API.md), so register the authenticated envelope route directly.
   ctx.inject(['webServer', 'connection'], (webCtx) => {
     const handler = async (req, res) => {
       const admission = webCtx.connection.admit(req)
@@ -643,10 +893,35 @@ export function apply(ctx) {
         }
         try {
           const body = await readJsonBody(req)
-          const summary = await runPlan(body)
-          writeJson(res, 200, summary)
+          writeJson(res, 200, await runPlan(body))
         } catch (error) {
-          writeJson(res, 500, { ok: false, error: { code: error?.code || 'plan-failed', message: error?.message || String(error) } })
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'run') {
+        if (req.method !== 'POST') {
+          writeText(res, 405, 'method not allowed')
+          return
+        }
+        try {
+          writeJson(res, 200, startRun())
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'cancel') {
+        if (req.method !== 'POST') {
+          writeText(res, 405, 'method not allowed')
+          return
+        }
+        try {
+          writeJson(res, 200, cancelRun())
+        } catch (error) {
+          routeError(res, error)
         }
         return
       }
