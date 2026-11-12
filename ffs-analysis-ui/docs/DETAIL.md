@@ -16,7 +16,7 @@ snapshot built from the ds005165 run documented in
 
 | Section | Shows |
 |---|---|
-| Pipeline | run card, stage flow (`stage02` … `stage12`, numbered nodes on a rail), elapsed time, script and log tail, **Plan pipeline / Re-plan** |
+| Pipeline | run card, stage flow (`stage02` … `stage12`, numbered nodes on a rail) with per-stage durations, elapsed time, script and log tail, **Plan pipeline / Re-plan** |
 | Data | artifact table with kind/stage/size, artifact detail with path and display hints, **Load in viewer** |
 | QC | QC figures (motion, tSNR, carpet) and the note about CPU-only QC on this Mac |
 | Results | REML model summary, contrasts and peak, preview montage, empty cluster-table state |
@@ -30,8 +30,8 @@ snapshot built from the ds005165 run documented in
   (script + design specs only, no execution) and writes `work/ffs-analysis-project.json`.
 - **Run** posts to `/ffs-analysis/run`: the generated script runs as one managed child
   process, stdout/stderr stream into the script log, and the snapshot reports status,
-  current stage, percent and the log tail. **Cancel** signals the process group.
-  Run state lives in `work/ffs-analysis-run.json`.
+  current stage, percent, per-stage wall times and the log tail. **Cancel** signals the
+  process group. Run state (including `stageTimes`) lives in `work/ffs-analysis-run.json`.
 - **Load in viewer** calls the FFS viewer's authenticated `/ffs` channel with
   `load_paths` and then reveals the viewer tab.
 - **Refresh** re-fetches `/ffs-analysis/snapshot`; the snapshot is polled every 10 s.

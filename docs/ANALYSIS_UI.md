@@ -100,6 +100,9 @@ sections are filtered by the currently selected subject.
 - Progress: the run card shows percent, current stage and elapsed; the flow's current node
   is `running`, completed nodes are `done`, a failed stage is `failed`, and the log tail
   updates from the run's stdout/stderr.
+- Stage duration: every flow node shows its own wall time, recorded from banner transitions
+  in the run stream. Runs recorded before instrumentation show an inferred `~` time from
+  artifact mtimes, summing to the run total.
 - Failure: the failing node turns red, with the last 40 log lines and the failing command, and "hand to agent".
 
 ### Data

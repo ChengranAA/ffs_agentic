@@ -221,6 +221,55 @@ function listQcFigures(workAbs) {
   }
 }
 
+// Stage completion markers, used to infer per-stage wall time when a run predates
+// instrumentation. Values are file-name prefixes written at the end of each stage.
+const STAGE_MARKERS = {
+  stage02: /^stage02\./,
+  stage06: /^stage06\./,
+  stage07: /^stage07\./,
+  stage08: /^stage08\./,
+  stage10a: /^stage10\.warpmaster/,
+  stage10: /^stage10\.final\./,
+  stage10b: /^stage10\.(mask_epi|meanall)/,
+  stage12: /^stage12\./,
+}
+
+function inferStageTimes(workAbs, stages, run) {
+  const out = {}
+  if (!run?.startedAt) return out
+  let names = []
+  try {
+    names = readdirSync(workAbs, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name)
+  } catch {
+    return out
+  }
+  const ends = {}
+  for (const stage of stages) {
+    const marker = STAGE_MARKERS[stage.name]
+    if (!marker) continue
+    for (const name of names) {
+      if (!marker.test(name)) continue
+      try {
+        const mtime = statSync(path.join(workAbs, name)).mtimeMs
+        if (!ends[stage.name] || mtime > ends[stage.name]) ends[stage.name] = mtime
+      } catch { /* skip unreadable file */ }
+    }
+  }
+  let previous = Date.parse(run.startedAt)
+  for (const stage of stages) {
+    const end = ends[stage.name]
+    if (!end) continue
+    if (Number.isFinite(previous) && previous > 0) {
+      out[stage.name] = {
+        seconds: Math.max(0, Math.round((end - previous) / 1000)),
+        estimated: true,
+      }
+    }
+    previous = end
+  }
+  return out
+}
+
 // ------------------------------------------------------------------ project / run state
 function readProjectState() {
   if (!existsSync(PROJECT_STATE_FILE)) return null
@@ -308,16 +357,30 @@ function runView(state) {
   }
 
   const failedStage = status === 'failed' && current ? current : null
-  const stages = parsed.map((stage) => ({
-    ...stage,
-    status: failedStage === stage.name
-      ? 'failed'
-      : done.has(stage.name)
-        ? 'done'
-        : (running && current === stage.name)
-          ? 'running'
-          : 'pending',
-  }))
+  const workAbs = resolveInside(state.workDir, 'work dir')
+  const instrumented = run && run.stageTimes && Object.keys(run.stageTimes).length ? run.stageTimes : null
+  const inferred = instrumented ? null : inferStageTimes(workAbs, parsed, run)
+  const timeOf = (name) => {
+    if (instrumented && typeof instrumented[name] === 'number') {
+      return { seconds: instrumented[name], estimated: false }
+    }
+    return inferred?.[name] || null
+  }
+  const stages = parsed.map((stage) => {
+    const time = timeOf(stage.name)
+    return {
+      ...stage,
+      seconds: time ? time.seconds : undefined,
+      estimated: time ? time.estimated : false,
+      status: failedStage === stage.name
+        ? 'failed'
+        : done.has(stage.name)
+          ? 'done'
+          : (running && current === stage.name)
+            ? 'running'
+            : 'pending',
+    }
+  })
   const total = parsed.length || 1
   const percent = Math.round((100 * done.size) / total)
   const started = run?.startedAt ? Date.parse(run.startedAt) : 0
@@ -509,6 +572,14 @@ function snapshotSummary() {
       status: snapshot.pipeline?.status ?? null,
       recipe: snapshot.pipeline?.recipe ?? null,
       stages: Array.isArray(snapshot.pipeline?.stages) ? snapshot.pipeline.stages.length : 0,
+      stageDetail: Array.isArray(snapshot.pipeline?.stages)
+        ? snapshot.pipeline.stages.map((stage) => ({
+          name: stage.name,
+          status: stage.status,
+          seconds: typeof stage.seconds === 'number' ? stage.seconds : null,
+          estimated: Boolean(stage.estimated),
+        }))
+        : [],
       progress: snapshot.pipeline?.progress ?? null,
       currentStage: snapshot.pipeline?.currentStage ?? null,
       activity: snapshot.pipeline?.activity ?? null,
@@ -702,10 +773,44 @@ function startRun() {
     log: state.log,
     workDir: state.workDir,
     error: null,
+    stageTimes: {},
   }
   persistRun()
+  // Record exact stage wall times from the stream: a banner closes the previous stage.
+  const stageTimes = {}
+  let stageText = ''
+  let bannerIndex = 0
+  let currentStage = null
+  let stageStartedAt = Date.now()
+  let stage12Seen = false
+  const transition = (name, at) => {
+    if (currentStage && currentStage !== name) {
+      stageTimes[currentStage] = Math.max(0, Math.round((at - stageStartedAt) / 1000))
+    }
+    currentStage = name
+    stageStartedAt = at
+    RUN.stageTimes = stageTimes
+  }
+  const scan = (chunk) => {
+    stageText += String(chunk)
+    if (stageText.length > 400000) stageText = stageText.slice(-200000)
+    const banners = logBanners(stageText)
+    while (bannerIndex < banners.length) transition(banners[bannerIndex++], Date.now())
+    // The GLM stage has no banner: start it at its spec-compile line.
+    if (!stage12Seen && /Compiling spec stage11|ffs_reml - GPU-Accelerated/.test(stageText)) {
+      stage12Seen = true
+      transition('stage12', Date.now())
+    }
+  }
   const write = (chunk) => {
     try { out.write(chunk) } catch { /* log stream gone */ }
+    scan(chunk)
+  }
+  const finishStage = () => {
+    if (currentStage) {
+      stageTimes[currentStage] = Math.max(0, Math.round((Date.now() - stageStartedAt) / 1000))
+    }
+    RUN.stageTimes = stageTimes
   }
   child.stdout.on('data', write)
   child.stderr.on('data', write)
@@ -713,11 +818,13 @@ function startRun() {
     RUN.status = 'failed'
     RUN.error = String(error?.message || error)
     RUN.finishedAt = new Date().toISOString()
+    finishStage()
     try { out.end() } catch { /* already closed */ }
     persistRun()
   })
   child.on('exit', (code, signal) => {
     RUN.finishedAt = new Date().toISOString()
+    finishStage()
     if (code === 0) RUN.status = 'completed'
     else if (RUN.status === 'stopping' || signal) RUN.status = 'stopped'
     else RUN.status = 'failed'

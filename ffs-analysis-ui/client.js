@@ -248,6 +248,11 @@ window.__ModuleLoader__.load({
       return m ? `${m}m ${String(s).padStart(2, '0')}s` : `${s}s`
     }
 
+    function stageTime(stage) {
+      if (!stage || typeof stage.seconds !== 'number') return '—'
+      return `${stage.estimated ? '~' : ''}${formatSeconds(stage.seconds)}`
+    }
+
     function statusClass(status) {
       if (status === 'completed' || status === 'done') return 'ok'
       if (status === 'running' || status === 'stopping') return 'running'
@@ -399,12 +404,12 @@ window.__ModuleLoader__.load({
         h('span', { className: 'ffa-flow-text' },
           h('span', { className: 'ffa-flow-name' }, stage.name),
           h('span', { className: 'ffa-flow-label' }, stage.label || '')),
-        h('span', { className: 'ffa-flow-time' }, formatSeconds(stage.seconds))))),
+        h('span', { className: 'ffa-flow-time' }, stageTime(stage))))),
         selected
           ? h('div', { className: 'ffa-flow-detail' },
             h(StatusPill, { status: selected.status }),
             h('span', { className: 'ffa-small' }, selected.label || ''),
-            h('span', { className: 'ffa-small ffa-muted' }, formatSeconds(selected.seconds)),
+            h('span', { className: 'ffa-small ffa-muted' }, stageTime(selected)),
             h('span', { className: 'ffa-spacer' }),
             h('span', { className: 'ffa-small ffa-muted' }, selected.name))
           : null)
