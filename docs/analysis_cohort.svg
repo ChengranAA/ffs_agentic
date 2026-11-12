@@ -1,0 +1,180 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="840" viewBox="0 0 1280 840" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+  <defs>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#1f2328" flood-opacity="0.06"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="840" fill="#f6f7f9"/>
+
+  <!-- window header -->
+  <g filter="url(#soft)">
+    <rect x="24" y="20" width="1232" height="68" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="48" y="50" font-size="16" font-weight="600" fill="#1f2328">FFS analysis</text>
+  <text x="48" y="71" font-size="11" fill="#6b7280">/data/bids · ffs_work · cohort (32 subjects)</text>
+  <rect x="856" y="38" width="224" height="30" rx="15" fill="#f3f4f6" stroke="#e4e6eb"/>
+  <circle cx="874" cy="53" r="4" fill="#9aa1ab"/>
+  <text x="886" y="57" font-size="11" fill="#4b5563">cohort ready · 28 included</text>
+  <rect x="1100" y="38" width="132" height="30" rx="8" fill="#3b6cf6"/>
+  <text x="1166" y="57" font-size="11.5" fill="#ffffff" text-anchor="middle">Open viewer</text>
+
+  <!-- section rail -->
+  <g filter="url(#soft)">
+    <rect x="24" y="100" width="212" height="716" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <circle cx="54" cy="135" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="139" font-size="12.5" fill="#4b5563">Pipeline</text>
+  <text x="220" y="139" font-size="10.5" fill="#9aa1ab" text-anchor="end">4</text>
+
+  <circle cx="54" cy="173" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="177" font-size="12.5" fill="#4b5563">Data</text>
+  <text x="220" y="177" font-size="10.5" fill="#9aa1ab" text-anchor="end">32</text>
+
+  <circle cx="54" cy="211" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="215" font-size="12.5" fill="#4b5563">QC</text>
+  <text x="220" y="215" font-size="10.5" fill="#9aa1ab" text-anchor="end">4</text>
+
+  <circle cx="54" cy="249" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="253" font-size="12.5" fill="#4b5563">Results</text>
+  <text x="220" y="253" font-size="10.5" fill="#9aa1ab" text-anchor="end">6</text>
+
+  <rect x="32" y="270" width="196" height="34" rx="8" fill="#eef2ff"/>
+  <rect x="32" y="274" width="3" height="26" rx="1.5" fill="#3b6cf6"/>
+  <circle cx="54" cy="287" r="5" fill="#3b6cf6"/>
+  <text x="70" y="291" font-size="12.5" font-weight="600" fill="#1f2328">Cohort</text>
+  <text x="220" y="291" font-size="10.5" fill="#6b7280" text-anchor="end">32</text>
+
+  <circle cx="54" cy="325" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="329" font-size="12.5" fill="#4b5563">Group</text>
+  <text x="220" y="329" font-size="10.5" fill="#9aa1ab" text-anchor="end">2</text>
+
+  <circle cx="54" cy="363" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="367" font-size="12.5" fill="#4b5563">Provenance</text>
+
+  <line x1="44" y1="392" x2="216" y2="392" stroke="#eceef2"/>
+  <text x="44" y="418" font-size="9.5" letter-spacing="1" fill="#9aa1ab">COHORT</text>
+  <text x="44" y="440" font-size="10.5" fill="#4b5563">32 subjects · 28 included</text>
+  <text x="44" y="458" font-size="10.5" fill="#4b5563">groups: patients / controls</text>
+  <text x="44" y="476" font-size="10.5" fill="#4b5563">covariates: age, sex</text>
+  <text x="44" y="494" font-size="10.5" fill="#4b5563">scale: 10–50 · jobs 4</text>
+
+  <!-- cohort summary -->
+  <g filter="url(#soft)">
+    <rect x="252" y="100" width="1004" height="86" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="272" y="128" font-size="13" font-weight="600" fill="#1f2328">Cohort · 32 subjects · 28 included</text>
+  <text x="272" y="148" font-size="10.5" fill="#6b7280">4 excluded · variants: 1 single-run · 2 no-fieldmap · 1 edited script</text>
+  <rect x="272" y="160" width="600" height="7" rx="3.5" fill="#eceef2"/>
+  <rect x="272" y="160" width="525" height="7" rx="3.5" fill="#3b6cf6"/>
+  <text x="884" y="167" font-size="10" fill="#6b7280">28/32 first level complete</text>
+  <rect x="1072" y="112" width="80" height="28" rx="8" fill="#fafbfc" stroke="#e4e6eb"/>
+  <text x="1112" y="130" font-size="10" fill="#4b5563" text-anchor="middle">Validate</text>
+  <rect x="1160" y="112" width="84" height="28" rx="8" fill="#3b6cf6"/>
+  <text x="1202" y="130" font-size="10" fill="#ffffff" text-anchor="middle">Run pending</text>
+
+  <!-- cohort matrix -->
+  <g filter="url(#soft)">
+    <rect x="252" y="200" width="1004" height="430" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="272" y="228" font-size="12.5" font-weight="600" fill="#1f2328">Cohort matrix</text>
+  <rect x="980" y="212" width="60" height="22" rx="11" fill="#eef2ff" stroke="#3b6cf6"/>
+  <text x="1010" y="227" font-size="9.5" fill="#2f4fb8" text-anchor="middle">all</text>
+  <rect x="1048" y="212" width="76" height="22" rx="11" fill="#fafbfc" stroke="#e4e6eb"/>
+  <text x="1086" y="227" font-size="9.5" fill="#4b5563" text-anchor="middle">included</text>
+  <rect x="1132" y="212" width="104" height="22" rx="11" fill="#fafbfc" stroke="#e4e6eb"/>
+  <text x="1184" y="227" font-size="9.5" fill="#4b5563" text-anchor="middle">problems</text>
+
+  <rect x="272" y="240" width="964" height="28" rx="6" fill="#f6f7f9"/>
+  <g font-size="9.5" fill="#6b7280">
+    <text x="288" y="258">subject</text>
+    <text x="470" y="258">S02</text>
+    <text x="530" y="258">S10</text>
+    <text x="590" y="258">1st level</text>
+    <text x="670" y="258">QC</text>
+    <text x="730" y="258">notes</text>
+  </g>
+
+  <!-- rows -->
+  <g font-size="10.5" fill="#1f2328">
+    <text x="288" y="299">sub-001</text>
+    <circle cx="476" cy="295" r="5" fill="#2f9e44"/>
+    <circle cx="536" cy="295" r="5" fill="#2f9e44"/>
+    <circle cx="596" cy="295" r="5" fill="#2f9e44"/>
+    <circle cx="676" cy="295" r="5" fill="#f08c00"/>
+    <text x="730" y="299" font-size="9.5" fill="#6b7280">QC warning · script edited</text>
+
+    <text x="288" y="337">sub-002</text>
+    <circle cx="476" cy="333" r="5" fill="#2f9e44"/>
+    <circle cx="536" cy="333" r="5" fill="#2f9e44"/>
+    <circle cx="596" cy="333" r="5" fill="#2f9e44"/>
+    <circle cx="676" cy="333" r="5" fill="#2f9e44"/>
+    <text x="730" y="337" font-size="9.5" fill="#6b7280">—</text>
+
+    <text x="288" y="375">sub-003</text>
+    <circle cx="476" cy="371" r="5" fill="#2f9e44"/>
+    <circle cx="536" cy="371" r="5" fill="#2f9e44"/>
+    <circle cx="596" cy="371" r="5" fill="#3b6cf6"/>
+    <circle cx="676" cy="371" r="5" fill="#d0d4da"/>
+    <text x="730" y="375" font-size="9.5" fill="#6b7280">single run</text>
+
+    <text x="288" y="413">sub-004</text>
+    <circle cx="476" cy="409" r="5" fill="#2f9e44"/>
+    <circle cx="536" cy="409" r="5" fill="#2f9e44"/>
+    <circle cx="596" cy="409" r="5" fill="#2f9e44"/>
+    <circle cx="676" cy="409" r="5" fill="#2f9e44"/>
+    <text x="730" y="413" font-size="9.5" fill="#6b7280">no fieldmap</text>
+
+    <text x="288" y="451">sub-005</text>
+    <circle cx="476" cy="447" r="5" fill="#2f9e44"/>
+    <circle cx="536" cy="447" r="5" fill="#e03131"/>
+    <circle cx="596" cy="447" r="5" fill="#d0d4da"/>
+    <circle cx="676" cy="447" r="5" fill="#d0d4da"/>
+    <text x="730" y="451" font-size="9.5" fill="#e03131">stage10 failed</text>
+
+    <text x="288" y="489">sub-006</text>
+    <circle cx="476" cy="485" r="5" fill="#2f9e44"/>
+    <circle cx="536" cy="485" r="5" fill="#2f9e44"/>
+    <circle cx="596" cy="485" r="5" fill="#2f9e44"/>
+    <circle cx="676" cy="485" r="5" fill="#2f9e44"/>
+    <text x="730" y="489" font-size="9.5" fill="#6b7280">—</text>
+
+    <g opacity="0.5">
+      <text x="288" y="527">sub-009</text>
+      <circle cx="476" cy="523" r="5" fill="#9aa1ab"/>
+      <circle cx="536" cy="523" r="5" fill="#9aa1ab"/>
+      <circle cx="596" cy="523" r="5" fill="#9aa1ab"/>
+      <circle cx="676" cy="523" r="5" fill="#9aa1ab"/>
+      <text x="730" y="527" font-size="9.5" fill="#6b7280">excluded · motion (FD)</text>
+    </g>
+
+    <text x="288" y="565">sub-010</text>
+    <circle cx="476" cy="561" r="5" fill="#d0d4da"/>
+    <circle cx="536" cy="561" r="5" fill="#d0d4da"/>
+    <circle cx="596" cy="561" r="5" fill="#d0d4da"/>
+    <circle cx="676" cy="561" r="5" fill="#d0d4da"/>
+    <text x="730" y="565" font-size="9.5" fill="#6b7280">queued</text>
+  </g>
+
+  <text x="272" y="606" font-size="10" fill="#6b7280">8 of 32 shown · click a row for subject detail · variants come from subject.yaml</text>
+
+  <!-- group analyses -->
+  <g filter="url(#soft)">
+    <rect x="252" y="646" width="1004" height="170" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="272" y="674" font-size="12.5" font-weight="600" fill="#1f2328">Group analyses · 2</text>
+  <rect x="1108" y="656" width="136" height="28" rx="8" fill="#3b6cf6"/>
+  <text x="1176" y="674" font-size="10" fill="#ffffff" text-anchor="middle">Design group analysis</text>
+
+  <rect x="272" y="690" width="964" height="48" rx="8" fill="#fafbfc" stroke="#eceef2"/>
+  <text x="288" y="712" font-size="11.5" font-weight="600" fill="#1f2328">g1 · A &gt; B</text>
+  <text x="288" y="728" font-size="9.5" fill="#9aa1ab">one-sample · 3dMEMA · N=28 · cluster (voxel p&lt;.005, cluster p&lt;.05, NN2)</text>
+  <rect x="1150" y="702" width="70" height="20" rx="10" fill="#eaf6ee" stroke="#b7e1c1"/>
+  <text x="1185" y="716" font-size="9" fill="#23663a" text-anchor="middle">ready</text>
+
+  <rect x="272" y="746" width="964" height="48" rx="8" fill="#fafbfc" stroke="#eceef2"/>
+  <text x="288" y="768" font-size="11.5" font-weight="600" fill="#1f2328">g2 · A &gt; B</text>
+  <text x="288" y="784" font-size="9.5" fill="#9aa1ab">two-sample · 3dttest++ · permutation 5000 · patients vs controls</text>
+  <rect x="1150" y="758" width="70" height="20" rx="10" fill="#fff4e6" stroke="#ffd8a8"/>
+  <text x="1185" y="772" font-size="9" fill="#b35c00" text-anchor="middle">draft</text>
+</svg>

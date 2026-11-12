@@ -1,0 +1,192 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="840" viewBox="0 0 1280 840" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+  <defs>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#1f2328" flood-opacity="0.06"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="840" fill="#f6f7f9"/>
+
+  <!-- window header -->
+  <g filter="url(#soft)">
+    <rect x="24" y="20" width="1232" height="68" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="48" y="50" font-size="16" font-weight="600" fill="#1f2328">FFS analysis</text>
+  <text x="48" y="71" font-size="11" fill="#6b7280">/data/bids · ffs_work · sub-001</text>
+  <rect x="880" y="38" width="200" height="30" rx="15" fill="#eaf6ee" stroke="#b7e1c1"/>
+  <circle cx="898" cy="53" r="4" fill="#2f9e44"/>
+  <text x="910" y="57" font-size="11" fill="#23663a">running · stage10 of 12</text>
+  <rect x="1100" y="38" width="132" height="30" rx="8" fill="#3b6cf6"/>
+  <text x="1166" y="57" font-size="11.5" fill="#ffffff" text-anchor="middle">Open viewer</text>
+
+  <!-- section rail -->
+  <g filter="url(#soft)">
+    <rect x="24" y="100" width="212" height="716" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <rect x="32" y="118" width="196" height="38" rx="8" fill="#eef2ff"/>
+  <rect x="32" y="124" width="3" height="26" rx="1.5" fill="#3b6cf6"/>
+  <circle cx="54" cy="137" r="5" fill="#3b6cf6"/>
+  <text x="70" y="141" font-size="12.5" font-weight="600" fill="#1f2328">Pipeline</text>
+  <text x="220" y="141" font-size="10.5" fill="#6b7280" text-anchor="end">1</text>
+
+  <circle cx="54" cy="181" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="185" font-size="12.5" fill="#4b5563">Data</text>
+  <text x="220" y="185" font-size="10.5" fill="#9aa1ab" text-anchor="end">12</text>
+
+  <circle cx="54" cy="225" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="229" font-size="12.5" fill="#4b5563">QC</text>
+  <text x="220" y="229" font-size="10.5" fill="#9aa1ab" text-anchor="end">2</text>
+
+  <circle cx="54" cy="269" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="273" font-size="12.5" fill="#4b5563">Results</text>
+  <text x="220" y="273" font-size="10.5" fill="#9aa1ab" text-anchor="end">6</text>
+
+  <circle cx="54" cy="313" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="317" font-size="12.5" fill="#4b5563">Provenance</text>
+
+  <line x1="44" y1="348" x2="216" y2="348" stroke="#eceef2"/>
+  <text x="44" y="374" font-size="9.5" letter-spacing="1" fill="#9aa1ab">PROJECT</text>
+  <text x="44" y="396" font-size="10.5" fill="#4b5563">/data/bids</text>
+  <text x="44" y="414" font-size="10.5" fill="#4b5563">ffs_work/project.json</text>
+  <text x="44" y="432" font-size="10.5" fill="#4b5563">device auto · mps</text>
+  <text x="44" y="450" font-size="10.5" fill="#4b5563">ffs 0.1.0 · rev 42</text>
+
+  <!-- run card -->
+  <g filter="url(#soft)">
+    <rect x="252" y="100" width="1004" height="112" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="272" y="126" font-size="13" font-weight="600" fill="#1f2328">sub-001 · ses-01 · recipe complete</text>
+  <rect x="672" y="112" width="74" height="20" rx="10" fill="#eaf6ee" stroke="#b7e1c1"/>
+  <text x="709" y="126" font-size="10" fill="#23663a" text-anchor="middle">running</text>
+  <text x="1236" y="126" font-size="10.5" fill="#9aa1ab" text-anchor="end">job-7f3a · 00:12:34</text>
+
+  <rect x="272" y="140" width="616" height="8" rx="4" fill="#eceef2"/>
+  <rect x="272" y="140" width="420" height="8" rx="4" fill="#3b6cf6"/>
+  <text x="900" y="149" font-size="10.5" fill="#6b7280">68% · stage10 of 12</text>
+
+  <!-- stage chips -->
+  <g font-size="9.5" text-anchor="middle">
+    <rect x="272" y="160" width="73" height="28" rx="7" fill="#eaf6ee" stroke="#b7e1c1"/>
+    <text x="308" y="178" fill="#23663a">stage00</text>
+    <rect x="352" y="160" width="73" height="28" rx="7" fill="#eaf6ee" stroke="#b7e1c1"/>
+    <text x="388" y="178" fill="#23663a">stage01</text>
+    <rect x="432" y="160" width="73" height="28" rx="7" fill="#eaf6ee" stroke="#b7e1c1"/>
+    <text x="468" y="178" fill="#23663a">stage02</text>
+    <rect x="512" y="160" width="73" height="28" rx="7" fill="#eaf6ee" stroke="#b7e1c1"/>
+    <text x="548" y="178" fill="#23663a">stage03</text>
+    <rect x="592" y="160" width="73" height="28" rx="7" fill="#eaf6ee" stroke="#b7e1c1"/>
+    <text x="628" y="178" fill="#23663a">stage04</text>
+    <rect x="672" y="160" width="73" height="28" rx="7" fill="#eaf6ee" stroke="#b7e1c1"/>
+    <text x="708" y="178" fill="#23663a">stage05</text>
+    <rect x="752" y="160" width="73" height="28" rx="7" fill="#eaf6ee" stroke="#b7e1c1"/>
+    <text x="788" y="178" fill="#23663a">stage06</text>
+    <rect x="832" y="160" width="73" height="28" rx="7" fill="#eaf6ee" stroke="#b7e1c1"/>
+    <text x="868" y="178" fill="#23663a">stage07</text>
+    <rect x="912" y="160" width="73" height="28" rx="7" fill="#eaf6ee" stroke="#b7e1c1"/>
+    <text x="948" y="178" fill="#23663a">stage08</text>
+    <rect x="992" y="160" width="73" height="28" rx="7" fill="#eaf6ee" stroke="#b7e1c1"/>
+    <text x="1028" y="178" fill="#23663a">stage09</text>
+    <rect x="1072" y="160" width="73" height="28" rx="7" fill="#eef2ff" stroke="#3b6cf6"/>
+    <circle cx="1082" cy="174" r="2.5" fill="#3b6cf6"/>
+    <text x="1112" y="178" fill="#2f4fb8">stage10</text>
+    <rect x="1152" y="160" width="73" height="28" rx="7" fill="#f3f4f6" stroke="#e4e6eb"/>
+    <text x="1188" y="178" fill="#9aa1ab">stage12</text>
+  </g>
+
+  <!-- log -->
+  <g filter="url(#soft)">
+    <rect x="252" y="228" width="640" height="276" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="272" y="254" font-size="12.5" font-weight="600" fill="#1f2328">stage10 · log</text>
+  <text x="872" y="254" font-size="10" fill="#6b7280" text-anchor="end">follow ●</text>
+  <rect x="268" y="266" width="608" height="222" rx="8" fill="#14171c"/>
+  <g font-family="SFMono-Regular,Menlo,Consolas,monospace" font-size="10.5">
+    <text x="284" y="290" fill="#7ee787">== stage10: final compose + resample ==</text>
+    <text x="284" y="308" fill="#c9d1d9">ffs_nwarp -interp wsinc5 -master stage10.warpmaster.nii.gz \</text>
+    <text x="284" y="326" fill="#c9d1d9">  -source stage08b.sub-001_run-01.nii.gz \</text>
+    <text x="284" y="344" fill="#c9d1d9">  -prefix stage10.final.sub-001_run-01 -dxyz 2</text>
+    <text x="284" y="362" fill="#7ee787">== stage10b: masks ==</text>
+    <text x="284" y="380" fill="#c9d1d9">ffs_util_automask -input stage10.final... -prefix stage10.mask_brain</text>
+    <text x="284" y="398" fill="#8b949e">elapsed 00:12:34</text>
+    <text x="284" y="416" fill="#3b6cf6">▍</text>
+  </g>
+  <rect x="864" y="272" width="4" height="84" rx="2" fill="#30363d"/>
+
+  <!-- artifacts -->
+  <g filter="url(#soft)">
+    <rect x="908" y="228" width="348" height="276" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="928" y="254" font-size="12.5" font-weight="600" fill="#1f2328">recent artifacts</text>
+  <text x="1236" y="254" font-size="10" fill="#6b7280" text-anchor="end">all kinds</text>
+
+  <rect x="924" y="268" width="316" height="52" rx="8" fill="#fafbfc" stroke="#eceef2"/>
+  <text x="938" y="290" font-size="11.5" font-weight="600" fill="#1f2328">stage10.final.task-rest</text>
+  <text x="938" y="306" font-size="9.5" fill="#9aa1ab">func · 2.0 mm · 12.1 MB</text>
+  <rect x="1196" y="282" width="34" height="22" rx="6" fill="#eef2ff" stroke="#c7d4ff"/>
+  <text x="1213" y="297" font-size="9.5" fill="#2f4fb8" text-anchor="middle">Load</text>
+
+  <rect x="924" y="326" width="316" height="52" rx="8" fill="#fafbfc" stroke="#eceef2"/>
+  <text x="938" y="348" font-size="11.5" font-weight="600" fill="#1f2328">stage10.mask_brain</text>
+  <text x="938" y="364" font-size="9.5" fill="#9aa1ab">mask · 2.0 mm · 0.4 MB</text>
+  <rect x="1196" y="340" width="34" height="22" rx="6" fill="#eef2ff" stroke="#c7d4ff"/>
+  <text x="1213" y="355" font-size="9.5" fill="#2f4fb8" text-anchor="middle">Load</text>
+
+  <rect x="924" y="384" width="316" height="52" rx="8" fill="#fafbfc" stroke="#eceef2"/>
+  <text x="938" y="406" font-size="11.5" font-weight="600" fill="#1f2328">stage12.stats-reml.task-rest</text>
+  <text x="938" y="422" font-size="9.5" fill="#9aa1ab">stats · 8 sub-bricks · 6.3 MB</text>
+  <rect x="1196" y="398" width="34" height="22" rx="6" fill="#eef2ff" stroke="#c7d4ff"/>
+  <text x="1213" y="413" font-size="9.5" fill="#2f4fb8" text-anchor="middle">Load</text>
+
+  <text x="1236" y="470" font-size="10.5" fill="#3b6cf6" text-anchor="end">all 12 artifacts ›</text>
+
+  <!-- QC strip -->
+  <g filter="url(#soft)">
+    <rect x="252" y="520" width="1004" height="296" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="272" y="548" font-size="12.5" font-weight="600" fill="#1f2328">QC · run checks</text>
+  <text x="392" y="548" font-size="10.5" fill="#6b7280">2 runs · 1 warning</text>
+
+  <!-- QC card run-01 -->
+  <rect x="272" y="562" width="468" height="236" rx="10" fill="#fbfcfd" stroke="#eceef2"/>
+  <text x="288" y="588" font-size="11.5" font-weight="600" fill="#1f2328">run-01</text>
+  <rect x="350" y="576" width="54" height="20" rx="10" fill="#eaf6ee" stroke="#b7e1c1"/>
+  <text x="377" y="590" font-size="9" fill="#23663a" text-anchor="middle">pass</text>
+
+  <rect x="288" y="600" width="436" height="96" rx="8" fill="#ffffff" stroke="#eceef2"/>
+  <polyline points="300,678 320,672 340,676 360,668 380,674 400,670 420,664 440,672 460,666 480,670 500,662 520,668 540,664 560,670 580,664 600,668 620,660 640,666 660,662 680,668 700,664 712,666" fill="none" stroke="#3b6cf6" stroke-width="1.5"/>
+  <line x1="300" y1="684" x2="712" y2="684" stroke="#eceef2"/>
+  <text x="300" y="710" font-size="9.5" fill="#6b7280">FD max 0.42 mm · mean 0.18 mm · 80 TR</text>
+
+  <rect x="288" y="722" width="100" height="64" rx="6" fill="#dfe7f1"/>
+  <text x="338" y="758" font-size="9" fill="#6b7280" text-anchor="middle">mean</text>
+  <rect x="396" y="722" width="100" height="64" rx="6" fill="#e7eef5"/>
+  <text x="446" y="758" font-size="9" fill="#6b7280" text-anchor="middle">tSNR</text>
+  <rect x="508" y="722" width="64" height="24" rx="6" fill="#eef2ff" stroke="#c7d4ff"/>
+  <text x="540" y="738" font-size="9.5" fill="#2f4fb8" text-anchor="middle">Inspect</text>
+  <rect x="580" y="722" width="64" height="24" rx="6" fill="#eaf6ee" stroke="#b7e1c1"/>
+  <text x="612" y="738" font-size="9.5" fill="#23663a" text-anchor="middle">Accept</text>
+  <rect x="652" y="722" width="64" height="24" rx="6" fill="#f3f4f6" stroke="#e4e6eb"/>
+  <text x="684" y="738" font-size="9.5" fill="#6b7280" text-anchor="middle">Exclude</text>
+
+  <!-- QC card run-02 -->
+  <rect x="768" y="562" width="468" height="236" rx="10" fill="#fbfcfd" stroke="#eceef2"/>
+  <text x="784" y="588" font-size="11.5" font-weight="600" fill="#1f2328">run-02</text>
+  <rect x="846" y="576" width="62" height="20" rx="10" fill="#fff4e6" stroke="#ffd8a8"/>
+  <text x="877" y="590" font-size="9" fill="#b35c00" text-anchor="middle">warning</text>
+
+  <rect x="784" y="600" width="436" height="96" rx="8" fill="#ffffff" stroke="#eceef2"/>
+  <polyline points="796,678 816,676 836,662 856,676 876,640 896,676 916,670 936,660 956,676 976,648 996,674 1016,666 1036,678 1056,600 1076,676 1096,666 1116,674 1136,668 1156,676 1176,670 1196,674 1208,672" fill="none" stroke="#f08c00" stroke-width="1.5"/>
+  <line x1="796" y1="684" x2="1208" y2="684" stroke="#eceef2"/>
+  <text x="796" y="710" font-size="9.5" fill="#b35c00">FD max 1.91 mm · 3 TRs above 0.5 — likely motion</text>
+
+  <rect x="784" y="722" width="100" height="64" rx="6" fill="#dfe7f1"/>
+  <text x="834" y="758" font-size="9" fill="#6b7280" text-anchor="middle">mean</text>
+  <rect x="892" y="722" width="100" height="64" rx="6" fill="#e7eef5"/>
+  <text x="942" y="758" font-size="9" fill="#6b7280" text-anchor="middle">tSNR</text>
+  <rect x="1004" y="722" width="64" height="24" rx="6" fill="#eef2ff" stroke="#c7d4ff"/>
+  <text x="1036" y="738" font-size="9.5" fill="#2f4fb8" text-anchor="middle">Inspect</text>
+  <rect x="1076" y="722" width="64" height="24" rx="6" fill="#eaf6ee" stroke="#b7e1c1"/>
+  <text x="1108" y="738" font-size="9.5" fill="#23663a" text-anchor="middle">Accept</text>
+  <rect x="1148" y="722" width="64" height="24" rx="6" fill="#f3f4f6" stroke="#e4e6eb"/>
+  <text x="1180" y="738" font-size="9.5" fill="#6b7280" text-anchor="middle">Exclude</text>
+</svg>
