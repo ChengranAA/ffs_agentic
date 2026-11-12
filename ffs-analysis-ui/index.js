@@ -18,7 +18,8 @@
  */
 
 import { execFileSync, spawn } from 'node:child_process'
-import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -515,6 +516,7 @@ function buildLiveSnapshot(state) {
     notes.push('The script is newer than the log: the flow is the plan, not a completed run.')
   }
   if (view.running) notes.push('Run in progress; the flow and log update from the running script.')
+  const settledRecord = readSettled()
 
   return {
     schema: 'ffs-analysis-live/1',
@@ -603,9 +605,14 @@ function buildLiveSnapshot(state) {
       analyses: [],
     },
     provenance: {
-      settled: false,
-      settledNote: 'Not settled: package export needs ffs_settle/ffs_export (M3).',
-      exportEnabled: false,
+      settled: Boolean(settledRecord),
+      settledId: settledRecord?.id || null,
+      settledAt: settledRecord?.at || null,
+      exportPath: settledRecord?.exportPath || null,
+      settledNote: settledRecord
+        ? 'Settled. Export builds the reproducible package.'
+        : 'Not settled: run the plan to completion, then Settle to freeze and export.',
+      exportEnabled: Boolean(settledRecord),
       artifacts: artifacts.length,
     },
   }
@@ -677,6 +684,7 @@ function snapshotSummary() {
       clusters: Array.isArray(snapshot.results?.clusters) ? snapshot.results.clusters.length : 0,
       threshold: snapshot.results?.threshold ?? null,
     },
+    provenance: snapshot.provenance ?? null,
     groupAnalyses: Array.isArray(snapshot.group?.analyses) ? snapshot.group.analyses.length : 0,
     fixture: FIXTURE_FILE,
     state: PROJECT_STATE_FILE,
@@ -940,6 +948,390 @@ function cancelRun() {
   return runSummary()
 }
 
+// ------------------------------------------------------------------ settle / export
+const SETTLED_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-analysis-settled.json')
+const EXPORT_ROOT = path.join(PROJECT_ROOT, 'exports')
+
+function pythonPath() {
+  return process.env.FFS_PYTHON || path.join(PROJECT_ROOT, '.venv', 'bin', 'python')
+}
+
+function sha256File(file) {
+  try {
+    return createHash('sha256').update(readFileSync(file)).digest('hex')
+  } catch {
+    return null
+  }
+}
+
+function packageVersion() {
+  try {
+    const text = readFileSync(path.join(PROJECT_ROOT, 'reference', 'fastfuncstuff', 'pyproject.toml'), 'utf8')
+    const match = /^version\s*=\s*"([^"]+)"/m.exec(text)
+    return match ? match[1] : 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+function gitShort(dir) {
+  try {
+    return execFileSync('git', ['-C', dir, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8', timeout: 30000 }).trim()
+  } catch {
+    return null
+  }
+}
+
+function torchVersion() {
+  try {
+    return execFileSync(pythonPath(), ['-c', 'import torch;print(torch.__version__)'], {
+      encoding: 'utf8', timeout: 60000, env: ffsEnv(),
+    }).trim()
+  } catch {
+    return null
+  }
+}
+
+function readSettled() {
+  if (!existsSync(SETTLED_FILE)) return null
+  try {
+    return JSON.parse(readFileSync(SETTLED_FILE, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+function writeSettled(record) {
+  mkdirSync(path.dirname(SETTLED_FILE), { recursive: true })
+  writeFileSync(SETTLED_FILE, `${JSON.stringify(record, null, 2)}\n`)
+  return record
+}
+
+function settleProject() {
+  const state = readProjectState()
+  if (!state) throw Object.assign(new Error('no plan yet: plan and run first'), { code: 'not-planned' })
+  const view = runView(state)
+  if (view.status !== 'completed') {
+    throw Object.assign(new Error('the plan has not completed: run it before settling'), { code: 'not-run' })
+  }
+  const workAbs = resolveInside(state.workDir, 'workDir')
+  const artifacts = listArtifacts(workAbs)
+  const statsArtifact = artifacts.find((artifact) => artifact.kind === 'stats' && !/ffsremlvar/.test(artifact.name))
+  const results = statsArtifact ? ensureResults(workAbs, statsArtifact.path) : null
+  const settled = {
+    schema: 'ffs-analysis-settled/1',
+    id: `settle-${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}`,
+    at: new Date().toISOString(),
+    project: {
+      name: `ds005165 sub-${state.params.subject}`,
+      dataset: 'BIDS · ds005165 (BOLD Moments)',
+      bidsDir: state.params.bidsDir,
+      subject: state.params.subject,
+      session: state.params.session,
+      task: state.params.task,
+      recipe: state.params.recipe,
+      workDir: state.workDir,
+      script: state.script,
+      log: state.log,
+    },
+    run: {
+      status: view.status,
+      startedAt: view.startedAt,
+      finishedAt: view.finishedAt,
+      stageTimes: view.stages.map((stage) => ({ name: stage.name, label: stage.label, seconds: stage.seconds ?? null })),
+    },
+    artifacts: artifacts.map((artifact) => ({
+      name: artifact.name,
+      kind: artifact.kind,
+      bytes: artifact.bytes,
+      path: artifact.path,
+      sha256: sha256File(artifact.path),
+    })),
+    results: results && !results.error
+      ? {
+        threshold: results.threshold,
+        minCluster: results.minCluster,
+        voxels: results.voxels,
+        contrasts: results.contrasts.map((contrast) => ({
+          name: contrast.name,
+          subBrick: contrast.subBrick,
+          peakT: contrast.peakT,
+          peakIJK: contrast.peakIJK,
+          peakMM: contrast.peakMM,
+          clusters: contrast.clusters.length,
+        })),
+        clusterCount: results.contrasts.reduce((sum, contrast) => sum + contrast.clusters.length, 0),
+      }
+      : null,
+    scriptSha256: sha256File(resolveInside(state.script, 'script')),
+    software: {
+      fastfuncstuff: packageVersion(),
+      fastfuncstuffRev: gitShort(path.join(PROJECT_ROOT, 'reference', 'fastfuncstuff')),
+      python: pythonPath(),
+      torch: torchVersion(),
+    },
+  }
+  return writeSettled(settled)
+}
+
+function csvEscape(value) {
+  const text = String(value ?? '')
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+function csvRows(rows) {
+  return `${rows.map((row) => row.map(csvEscape).join(',')).join('\n')}\n`
+}
+
+function pad(value) {
+  return String(value ?? '').padEnd(2, ' ')
+}
+
+function renderMethods(settled) {
+  const project = settled.project
+  const results = settled.results
+  const stages = settled.run.stageTimes
+    .map((stage) => `${stage.name} ${stage.label}${stage.seconds != null ? `, ${stage.seconds} s` : ''}`)
+    .join('; ')
+  const contrastList = results
+    ? results.contrasts.map((contrast) => `${contrast.name} (peak t = ${contrast.peakT})`).join(', ')
+    : 'not computed'
+  return `# Methods
+
+Generated from the settled analysis (${settled.id}, ${settled.at}). Facts come from the
+frozen script, its log, the design spec and the GLM bucket; edit this file after export if a
+journal requires a different voice.
+
+## Data
+
+Functional MRI data were taken from the BIDS dataset ds005165 (BOLD Moments), subject
+sub-${project.subject}, session ses-${project.session}, task ${project.task}. The analysis
+used two localizer runs (268 volumes each, TR 1.75 s, 2.5 × 2.5 × 2.75 mm).
+
+## Preprocessing
+
+The pipeline was generated by fastfuncstuff autoproc (recipe \`${project.recipe}\`) and run as
+one script, in this order: ${stages}. Motion correction was estimated per run and applied
+once at the final resample together with the cross-run alignment; the final grid was
+2.5 mm isotropic. Intermediate working files are resumable and frozen in
+\`frozen/proc_sub-${project.subject}.sh\`.
+
+## First-level analysis
+
+A run-wise general linear model was fitted with \`ffs_reml\`: six task regressors convolved
+with an SPMG1 basis, polynomial drift, and ARMA(1,1) prewhitening with a per-voxel REML grid
+search. The model was fitted to ${results ? results.voxels : '—'} in-mask voxels across the
+two runs (536 time points).
+
+## Results
+
+Contrast t-statistics were read from the REML bucket and thresholded at t ≥
+${results ? results.threshold : '—'} for inspection. ${results ? results.contrasts.length : '—'}
+contrasts (${contrastList}) produced ${results ? results.clusterCount : '—'} clusters of at
+least ${results ? results.minCluster : '—'} voxels (6-connectivity). These cluster counts are
+descriptive: no correction for multiple comparisons has been applied in this prototype.
+
+## Software
+
+- fastfuncstuff ${settled.software.fastfuncstuff}${settled.software.fastfuncstuffRev ? ` (${settled.software.fastfuncstuffRev})` : ''}
+- Python ${settled.software.python}
+- PyTorch ${settled.software.torch || 'unknown'}
+
+## Limitations
+
+Fixed-effects (single-subject) analysis; no group level, no multiple-comparison correction,
+no surface analysis in this export. The frozen script embeds absolute paths from the
+machine it ran on.
+`
+}
+
+function renderSteps(settled) {
+  const lines = [
+    '# Steps',
+    '',
+    `Frozen analysis plan for ${settled.project.name}, settled ${settled.at}.`,
+    '',
+    '## Pipeline',
+    '',
+    '| stage | label | seconds |',
+    '|---|---|---|',
+    ...settled.run.stageTimes.map((stage) => `| ${stage.name} | ${stage.label} | ${stage.seconds ?? '—'} |`),
+    '',
+    '## Commands',
+    '',
+    '```bash',
+    `bash frozen/proc_sub-${settled.project.subject}.sh`,
+    '```',
+    '',
+    'The script is resumable: stages with existing outputs are skipped. Its log is written',
+    `next to it (\`proc_sub-${settled.project.subject}.log\`).`,
+    '',
+    '## Artifacts',
+    '',
+    '| file | kind | bytes | sha256 |',
+    '|---|---|---|---|',
+    ...settled.artifacts.map((artifact) => `| ${artifact.name} | ${artifact.kind} | ${artifact.bytes} | ${(artifact.sha256 || '').slice(0, 16)}… |`),
+    '',
+  ]
+  return lines.join('\n')
+}
+
+function renderManifest(settled) {
+  return JSON.stringify({
+    schema: 'ffs-analysis-package/1',
+    settledAt: settled.at,
+    settledId: settled.id,
+    project: settled.project,
+    software: settled.software,
+    results: settled.results,
+    artifacts: settled.artifacts,
+  }, null, 2)
+}
+
+function exportPackage() {
+  const settled = readSettled()
+  if (!settled) throw Object.assign(new Error('settle the analysis first'), { code: 'not-settled' })
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-')
+  const dir = path.join(EXPORT_ROOT, `ffs_analysis_${settled.project.subject}_${stamp}`)
+  const workAbs = resolveInside(settled.project.workDir, 'workDir')
+  mkdirSync(path.join(dir, 'frozen'), { recursive: true })
+  mkdirSync(path.join(dir, 'tables'), { recursive: true })
+
+  const scriptSrc = resolveInside(settled.project.script, 'script')
+  copyFileSync(scriptSrc, path.join(dir, 'frozen', path.basename(scriptSrc)))
+  const designMatches = readdirSync(workAbs).filter((name) => name.endsWith('.toml'))
+  for (const name of designMatches) copyFileSync(path.join(workAbs, name), path.join(dir, 'frozen', name))
+  const stimuliDir = path.join(workAbs, 'stimuli')
+  if (existsSync(stimuliDir)) {
+    mkdirSync(path.join(dir, 'frozen', 'stimuli'), { recursive: true })
+    for (const name of readdirSync(stimuliDir)) copyFileSync(path.join(stimuliDir, name), path.join(dir, 'frozen', 'stimuli', name))
+  }
+
+  const results = ensureResults(workAbs, resolveInside(settled.artifacts.find((a) => a.kind === 'stats' && !/ffsremlvar/.test(a.name))?.path || scriptSrc, 'stats'))
+  const contrastRows = [['contrast', 'subBrick', 'peakT', 'i', 'j', 'k', 'x_mm', 'y_mm', 'z_mm']]
+  const clusterRows = [['contrast', 'voxels', 'peakT', 'i', 'j', 'k', 'x_mm', 'y_mm', 'z_mm']]
+  for (const contrast of results.contrasts || []) {
+    contrastRows.push([contrast.name, contrast.subBrick, contrast.peakT, ...(contrast.peakIJK || []), ...(contrast.peakMM || [])])
+    for (const cluster of contrast.clusters || []) {
+      clusterRows.push([contrast.name, cluster.size, cluster.peakT, ...(cluster.ijk || []), ...(cluster.mm || [])])
+    }
+  }
+  writeFileSync(path.join(dir, 'tables', 'contrasts.csv'), csvRows(contrastRows))
+  writeFileSync(path.join(dir, 'tables', 'clusters.csv'), csvRows(clusterRows))
+
+  writeFileSync(path.join(dir, 'README.md'), `# ${settled.project.name} — reproducible analysis package
+
+Generated from settled analysis ${settled.id} (${settled.at}).
+
+## Run
+
+\`\`\`bash
+bash doctor.sh
+bash run.sh
+\`\`\`
+
+## Layout
+
+- \`frozen/\` — the exact autoproc script, design spec and stimuli that produced the analysis
+- \`tables/\` — contrast peaks and clusters
+- \`STEPS.md\`, \`METHODS.md\`, \`methods.yaml\` — what ran and how to write it up
+- \`manifest.json\` — plan, software and artifact hashes
+
+## Caveat
+
+The frozen script embeds absolute paths from the machine it ran on; move/copy the data or
+edit \`env.sh\` to reproduce elsewhere. Group level, multiple-comparison correction and
+surface outputs are not part of this export.
+`)
+  writeFileSync(path.join(dir, 'STEPS.md'), renderSteps(settled))
+  writeFileSync(path.join(dir, 'METHODS.md'), renderMethods(settled))
+  writeFileSync(path.join(dir, 'methods.yaml'), `# Structured facts behind METHODS.md
+dataset:
+  source: BIDS ds005165 (BOLD Moments)
+  subject: sub-${settled.project.subject}
+  session: ses-${settled.project.session}
+  task: ${settled.project.task}
+  runs: 2
+  tr_s: 1.75
+  volumes_per_run: 268
+preprocessing:
+  tool: fastfuncstuff autoproc
+  recipe: ${settled.project.recipe}
+  stages:
+${settled.run.stageTimes.map((stage) => `    - { name: ${stage.name}, label: "${stage.label}", seconds: ${stage.seconds ?? 'null'} }`).join('\n')}
+analysis:
+  glm: ffs_reml ARMA(1,1)
+  hrf: SPMG1
+  voxels: ${settled.results?.voxels ?? 'null'}
+  contrasts: ${settled.results?.contrasts?.length ?? 0}
+results:
+  threshold: ${settled.results?.threshold ?? 'null'}
+  clusters: ${settled.results?.clusterCount ?? 0}
+software:
+  fastfuncstuff: "${settled.software.fastfuncstuff}"
+  revision: "${settled.software.fastfuncstuffRev || ''}"
+  python: "${settled.software.python}"
+  torch: "${settled.software.torch || ''}"
+`)
+  writeFileSync(path.join(dir, 'CITATIONS.md'), `# Citations
+
+- fastfuncstuff (${settled.software.fastfuncstuff}, ${settled.software.fastfuncstuffRev || 'checkout'}):
+  https://github.com/dowdlelt/fastfuncstuff
+- PyTorch ${settled.software.torch || ''}: https://pytorch.org
+
+Add the paper citations for the dataset and for any method (motion correction, REML,
+thresholding) your manuscript requires; this file intentionally contains no invented
+references.
+`)
+  writeFileSync(path.join(dir, 'env.sh'), `#!/usr/bin/env bash
+# Environment recorded at export time (absolute paths).
+export FFS_PYTHON="\${FFS_PYTHON:-${pythonPath()}}"
+export PYTHONPATH="${PROJECT_ROOT}/python:${PROJECT_ROOT}/reference/fastfuncstuff\${PYTHONPATH:+:$PYTHONPATH}"
+export PATH="${PROJECT_ROOT}/work/bin:\$PATH"
+export MPLCONFIGDIR="\${MPLCONFIGDIR:-${PROJECT_ROOT}/work/.mpl}"
+`)
+  writeFileSync(path.join(dir, 'run.sh'), `#!/usr/bin/env bash
+set -euo pipefail
+here="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+source "$here/env.sh"
+echo "== running frozen pipeline =="
+bash "$here/frozen/${path.basename(scriptSrc)}"
+echo "== done =="
+`)
+  writeFileSync(path.join(dir, 'doctor.sh'), `#!/usr/bin/env bash
+set -euo pipefail
+here="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+source "$here/env.sh"
+"$FFS_PYTHON" -c "import fastfuncstuff, torch; print('fastfuncstuff ok; torch', torch.__version__)"
+command -v zstd >/dev/null || echo "warning: zstd not found"
+test -f "$here/frozen/${path.basename(scriptSrc)}" || { echo "missing frozen script"; exit 1; }
+echo "doctor: ok"
+`)
+  for (const file of ['env.sh', 'run.sh', 'doctor.sh']) {
+    try { execFileSync('chmod', ['+x', path.join(dir, file)]) } catch { /* best effort */ }
+  }
+  writeFileSync(path.join(dir, 'manifest.json'), renderManifest(settled))
+
+  const checksumLines = []
+  const walk = (folder) => {
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      const abs = path.join(folder, entry.name)
+      if (entry.isDirectory()) walk(abs)
+      else if (!abs.endsWith('checksums.sha256')) checksumLines.push(`${sha256File(abs)}  ${path.relative(dir, abs)}`)
+    }
+  }
+  walk(dir)
+  writeFileSync(path.join(dir, 'checksums.sha256'), `${checksumLines.join('\n')}\n`)
+
+  const record = writeSettled({ ...settled, exportPath: path.relative(PROJECT_ROOT, dir), exportedAt: new Date().toISOString() })
+  return {
+    ok: true,
+    path: path.relative(PROJECT_ROOT, dir),
+    files: checksumLines.length + 1,
+    settledId: record.id,
+  }
+}
+
 // ------------------------------------------------------------------ transport
 function writeJson(res, status, value) {
   const body = JSON.stringify(value)
@@ -1073,6 +1465,40 @@ export function apply(ctx) {
   }), 'ffs-analysis: cancel tool')
 
   ctx.effect(() => ctx.tools.register({
+    name: 'ffs_analysis_settle',
+    description: [
+      'Freeze the completed analysis into a settled record: plan, run times, artifacts with',
+      'hashes, result summary and software versions. Required before export.',
+    ].join('\n'),
+    parameters: { type: 'object', properties: {}, required: [] },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    },
+    async execute() {
+      const settled = settleProject()
+      return JSON.stringify({ ok: true, id: settled.id, at: settled.at }, null, 1)
+    },
+  }), 'ffs-analysis: settle tool')
+
+  ctx.effect(() => ctx.tools.register({
+    name: 'ffs_analysis_export',
+    description: [
+      'Build the reproducible analysis package from the settled analysis: frozen script,',
+      'design, stimuli, run/doctor/env scripts, STEPS.md, METHODS.md, methods.yaml, citations,',
+      'CSV tables, manifest and checksums. Writes under exports/.',
+    ].join('\n'),
+    parameters: { type: 'object', properties: {}, required: [] },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    },
+    async execute() {
+      return JSON.stringify(exportPackage(), null, 1)
+    },
+  }), 'ffs-analysis: export tool')
+
+  ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_show',
     description: 'Reveal the FFS analysis inspection tab in the right sidebar.',
     parameters: { type: 'object', properties: {}, required: [] },
@@ -1146,6 +1572,21 @@ export function apply(ctx) {
         }
         try {
           writeJson(res, 200, cancelRun())
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'settle' || rel === 'export') {
+        if (req.method !== 'POST') {
+          writeText(res, 405, 'method not allowed')
+          return
+        }
+        try {
+          writeJson(res, 200, rel === 'settle'
+            ? { ok: true, ...settleProject() }
+            : exportPackage())
         } catch (error) {
           routeError(res, error)
         }

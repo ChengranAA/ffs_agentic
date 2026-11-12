@@ -87,6 +87,13 @@ window.__ModuleLoader__.load({
       cancel: 'Cancel',
       cancelRequested: 'Cancel requested',
       current: 'current',
+      settle: 'Settle analysis',
+      settling: 'Settling…',
+      settleFailed: 'Settle failed',
+      export: 'Export package',
+      exporting: 'Exporting…',
+      exported: 'Package exported',
+      exportFailed: 'Export failed',
       sourceLive: 'live',
       sourceFixture: 'fixture',
       loadFailed: 'Load failed',
@@ -630,19 +637,41 @@ window.__ModuleLoader__.load({
           : h('div', { className: 'ffa-empty' }, 'No group analyses yet.'))
     }
 
-    function ProvenanceSection({ snap, t }) {
+    function ProvenanceSection({ snap, t, onSettle, onExport, busyAction, onCopy }) {
       const provenance = snap.provenance || {}
+      const completed = snap.pipeline?.status === 'completed'
       return h(Card, { title: t('provenance') },
         h('div', { className: 'ffa-row' },
           h(StatusPill, { status: provenance.settled ? 'done' : 'draft' }),
-          h('span', { className: 'ffa-small ffa-muted' }, provenance.settled ? t('settled') : t('notSettled'))),
+          h('span', { className: 'ffa-small ffa-muted' }, provenance.settled ? t('settled') : t('notSettled')),
+          provenance.settledId ? h('span', { className: 'ffa-tag' }, provenance.settledId) : null),
         h('dl', { className: 'ffa-kv' },
           h('dt', null, 'artifacts'), h('dd', null, provenance.artifacts ?? '—'),
           h('dt', null, 'script'), h('dd', { className: 'ffa-mono' }, snap.pipeline?.script || '—'),
           h('dt', null, 'log'), h('dd', { className: 'ffa-mono' }, snap.pipeline?.log || '—')),
+        provenance.exportPath
+          ? h('div', { className: 'ffa-row' },
+            h('span', { className: 'ffa-small ffa-muted' }, 'package'),
+            h('span', { className: 'ffa-mono ffa-small' }, provenance.exportPath),
+            h('button', { className: 'ffa-btn', onClick: () => onCopy(provenance.exportPath) }, t('copyPath')))
+          : null,
         h('div', { className: 'ffa-actions' },
-          h('button', { className: 'ffa-btn', disabled: true, title: provenance.exportDisabled || '' }, t('export')),
-          h('span', { className: 'ffa-small ffa-muted' }, provenance.settledNote || t('exportDisabled'))))
+          h('button', {
+            className: 'ffa-btn ffa-btn-primary',
+            onClick: onSettle,
+            disabled: !completed || provenance.settled || busyAction === 'settle',
+            title: completed ? 'Freeze plan, run, artifacts and results' : 'Run the plan to completion first',
+          }, busyAction === 'settle' ? t('settling') : (provenance.settled ? t('settled') : t('settle'))),
+          h('button', {
+            className: 'ffa-btn',
+            onClick: onExport,
+            disabled: !provenance.settled || busyAction === 'export',
+            title: 'Build the reproducible package (scripts, STEPS.md, METHODS.md)',
+          }, busyAction === 'export' ? t('exporting') : t('export')),
+          h('span', { className: 'ffa-small ffa-muted' }, provenance.settledNote || '')),
+        provenance.settledAt
+          ? h('div', { className: 'ffa-small ffa-muted' }, `settled ${provenance.settledAt}`)
+          : null)
     }
 
     // ---------------------------------------------------------------- shell
@@ -652,6 +681,7 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState(null)
       const [planning, setPlanning] = useState(false)
       const [busyRun, setBusyRun] = useState(false)
+      const [busyAction, setBusyAction] = useState(null)
       const [toast, setToast] = useState(null)
 
       useEffect(() => {
@@ -739,6 +769,46 @@ window.__ModuleLoader__.load({
           clearTimeout(timer)
         }
       }, [ctx])
+
+      const settleAnalysis = useCallback(async () => {
+        setBusyAction('settle')
+        try {
+          const res = await fetch('/ffs-analysis/settle', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' }, body: '{}',
+          })
+          const payload = await res.json().catch(() => null)
+          if (!res.ok || !payload || payload.ok !== true) {
+            throw new Error(payload?.error?.message || `settle failed (${res.status})`)
+          }
+          setToast(`Settled · ${payload.id || ''}`)
+          await refresh()
+        } catch (e) {
+          setToast(`${t('settleFailed')}: ${e && e.message || e}`)
+        } finally {
+          setBusyAction(null)
+        }
+      }, [refresh, t])
+
+      const exportAnalysis = useCallback(async () => {
+        setBusyAction('export')
+        try {
+          const res = await fetch('/ffs-analysis/export', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' }, body: '{}',
+          })
+          const payload = await res.json().catch(() => null)
+          if (!res.ok || !payload || payload.ok !== true) {
+            throw new Error(payload?.error?.message || `export failed (${res.status})`)
+          }
+          setToast(`${t('exported')} · ${payload.path || ''}`)
+          await refresh()
+        } catch (e) {
+          setToast(`${t('exportFailed')}: ${e && e.message || e}`)
+        } finally {
+          setBusyAction(null)
+        }
+      }, [refresh, t])
 
       const openViewer = useCallback(() => {
         try {
@@ -855,7 +925,7 @@ window.__ModuleLoader__.load({
       else if (section === 'results') content = h(ResultsSection, { snap, t, onInspect: inspectResults })
       else if (section === 'cohort') content = h(CohortSection, { snap, t })
       else if (section === 'group') content = h(GroupSection, { snap, t })
-      else content = h(ProvenanceSection, { snap, t })
+      else content = h(ProvenanceSection, { snap, t, onSettle: settleAnalysis, onExport: exportAnalysis, busyAction, onCopy: copyPath })
 
       return h('div', { className: 'ffa-root' },
         h('header', { className: 'ffa-head' },

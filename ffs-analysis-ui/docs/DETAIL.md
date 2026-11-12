@@ -22,7 +22,7 @@ snapshot built from the ds005165 run documented in
 | Results | live contrasts and peaks from the GLM bucket, cluster table at t ≥ 3.1, **Inspect in viewer** |
 | Cohort | subject matrix (one row in this fixture), stage dots, variants |
 | Group | group analysis card (draft; needs a real cohort) |
-| Provenance | settle status, script/log paths, disabled **Export package** |
+| Provenance | **Settle** / **Export package**, settled id, package path, script/log |
 
 ## Interactions
 
@@ -32,8 +32,10 @@ snapshot built from the ds005165 run documented in
   process, stdout/stderr stream into the script log, and the snapshot reports status,
   current stage, percent, per-stage wall times and the log tail. **Cancel** signals the
   process group. Run state (including `stageTimes`) lives in `work/ffs-analysis-run.json`.
-- **Load in viewer** calls the FFS viewer's authenticated `/ffs` channel with
-  `load_paths` and then reveals the viewer tab.
+- **Settle** posts to `/ffs-analysis/settle` after a completed run and freezes the analysis.
+- **Export package** posts to `/ffs-analysis/export` and writes a runnable package under
+  `exports/` with STEPS/METHODS, frozen script/design/stimuli, tables, manifest and checksums.
+- **Inspect in viewer** sets the overlay from the results and reveals the viewer tab.
 - **Refresh** re-fetches `/ffs-analysis/snapshot`; the snapshot is polled every 10 s.
 
 ## Live vs fixture
@@ -43,7 +45,10 @@ snapshot built from the ds005165 run documented in
 - **Live** (`source: "live"`): after a plan, built from the real script/log/work dir. The
   header shows a `live`/`fixture` tag.
 - **Execution is a plain child process** for this milestone (moving it under `ctx.jobs` is
-  next); QC figures remain M2b, and settle/export is still open.
+  next), and QC figures remain M2b.
+- **Package portability**: the frozen script embeds absolute paths from this machine;
+  `env.sh` records them. A portable lock and figure bundle are M4, as are cohort/group
+  sections and multiple-comparison correction.
 - A cancelled run leaves partial outputs; the script is resumable, so Run again continues.
 - `-no_qc` is the default plan on this Mac: QC must run on CPU and is not part of this run.
 - **English UI only** (the `zh` locale covers the plugin metadata, not the tab body).

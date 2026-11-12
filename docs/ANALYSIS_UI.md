@@ -10,10 +10,12 @@ polls the snapshot every 2 s for live stage status, per-stage wall times and pro
 **Cancel** signals the process group. After the GLM, the Results section is summarized from
 the stats bucket by `scripts/results.py` (contrasts, peaks, clusters at t ≥ 3.1, 6-connectivity)
 and **Inspect in viewer** loads the mean + bucket, sets the overlay, sub-brick, threshold,
-sign and colormap, then jumps to the peak (or a clicked cluster). Plan/run state lives in
-`work/ffs-analysis-project.json` and `work/ffs-analysis-run.json`; result summaries are cached
-in the work dir. `ffs_analysis_show` reveals the tab. Open it from **Analysis** in the
-Session header or the sidebar tab guide.
+sign and colormap, then jumps to the peak (or a clicked cluster). **Settle** freezes the
+completed analysis, and **Export package** writes a runnable analysis package with
+`STEPS.md`, `METHODS.md`, `methods.yaml`, the frozen script/design/stimuli, tables, manifest
+and checksums. Plan/run/settled state lives in `work/`; packages land in `exports/`.
+`ffs_analysis_show` reveals the tab. Open it from **Analysis** in the Session header or the
+sidebar tab guide.
 
 The workflow design covered execution, provenance, and plugin contracts. This document
 covers what the user actually looks at: a dedicated inspection surface for the pipeline,
@@ -171,10 +173,14 @@ sections are filtered by the currently selected subject.
 - Inputs/outputs with sha256, FFS version, device, environment; manifest revision.
 - **Replay**: copy the command, re-run a stage, or reproduce the artifact; records a new
   attempt rather than overwriting history.
-- **Analysis package**: a checklist card — settled · cohort · group · scripts frozen ·
-  hashes · methods lint · figures — with a style selector, include-figures/viewer-state
-  toggles, **Export**, progress, and the result with "Open folder". Disabled until the
-  analysis is settled. Design: [REPRO_PACKAGE.md](REPRO_PACKAGE.md) §10.
+- **Settle**: freezes plan, run times, artifact hashes, result summary and software
+  versions into `work/ffs-analysis-settled.json`. Enabled only after a completed run.
+- **Export package**: writes `exports/ffs_analysis_<subject>_<stamp>/` containing
+  `frozen/` (script, design spec, stimuli), `run.sh`, `env.sh`, `doctor.sh`, `STEPS.md`,
+  `METHODS.md`, `methods.yaml`, `CITATIONS.md`, `tables/*.csv`, `manifest.json` and
+  `checksums.sha256`. The card shows the package path with copy. A fully portable
+  environment, figures and the cohort/group sections of [REPRO_PACKAGE.md](REPRO_PACKAGE.md)
+  are still open.
 - "Why can't I…" hints when a stage is missing because an upstream stage was skipped.
 
 ## 5. Slot map (verified against the running Harness)

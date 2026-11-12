@@ -9,3 +9,5 @@ __pycache__/
 # real-data test downloads and pipeline work dirs
 data/real/
 work/
+
+exports/
