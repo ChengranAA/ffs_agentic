@@ -231,6 +231,11 @@ locale namespace).
 
 ## 9. Design system and accessibility
 
+- **Same design language as the FFS viewer.** The analysis tab reuses the viewer's measured
+  values rather than inventing new ones: `12px/1.4` system font stack, 6 px shell padding,
+  `4px 6px` header, 6 px-radius buttons with brand hover, 9 px cards with a `layer2` header
+  band and 10 px uppercase tracked card titles, 999 px count pills, `layer2` row hover and
+  brand active borders.
 - Only `--dsw-alias-*` theme tokens for chrome; the FFS colormap palette is used only
   inside data plots.
 - Locale namespace `ffs-analysis` (en + zh), sentence case.
