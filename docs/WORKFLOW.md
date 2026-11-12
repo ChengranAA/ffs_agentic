@@ -191,7 +191,7 @@ Phase tools are thin wrappers over `ffsCompute`; they never hold state.
 - **Run the file.** Execution is `bash <script> 2>&1 | tee <log>` under a DSH job. The script is resumable, so a failed stage is fixed and the script re-run; the plugin reports which stages were already complete.
 - **Progress** is parsed from the emitted banners (`== stage00: NORDIC ==` … `== stage12: GLM (ffs_reml) ==`, including `stage10s`/`stage12s` for surfaces) and mapped to `job.updateProgress`.
 - **Cancel** forwards to the job, which signals the bash process group; the log keeps the last completed stage.
-- **Doctor** before anything else: python interpreter, `PYTHONPATH` import of `fastfuncstuff`, `zstd`, AFNI/FreeSurfer when requested, device availability, free disk. Missing tools fail fast with `env-missing`, not 40 minutes into a run.
+- **Doctor** before anything else: python interpreter, `PYTHONPATH` import of `fastfuncstuff`, `zstd`, AFNI/FreeSurfer when requested, device availability, free disk. Missing tools fail fast with `env-missing`, not 40 minutes into a run. On this Mac the doctor also verifies the `ffs_*` entry points the frozen script calls (a source checkout needs a PATH shim), `matplotlib` + a writable `MPLCONFIGDIR` for QC, and routes QC to CPU — the MPS QC path raises a float64 error ([REAL_DATA_TEST.md](REAL_DATA_TEST.md)).
 - **Cost acknowledgement.** `ffs_pipeline_run` states stages, subject count, and device before starting; run approval is explicit.
 - **Two processes, one disk.** The viewer sidecar and pipeline children both import torch; on a laptop this is a memory/CPU issue. Compute is sequential by default and the sidecar is idle during runs.
 - **Group engines are external and recorded.** FFS has no group model, so the group level runs AFNI `3dMEMA` (mixed effects, needs R), `3dttest++`, and `3dClustSim`/`3dFWHMx` — or an optional FSL `flame` adapter — as child processes with recorded argv. The doctor checks the binaries and R before a group run; results are normalized to one NIfTI + `result.json` so the UI and methods never parse AFNI bucket conventions.
@@ -274,6 +274,8 @@ data/bids-lite/
 - Optional fmap fixture behind a flag once stage04 is exercised; the minimum run can use `-no_anat`/no-fmap paths and still cover moco, alignment, resample, GLM.
 - Deterministic like the existing builder (fixed seed, mtime 0) so byte-identical fixtures and reproducible screenshots.
 - Keep it **small**: 32³–48³ voxels and few volumes, so the full pipeline is minutes, not hours, on CPU. Scientific fidelity is not the fixture's job; mechanics are.
+
+The synthetic fixture is for determinism; a real-data smoke test on OpenNeuro **ds005165** (sub-01, 2 runs, full bare-bones pipeline in 2:45 on MPS) is recorded in [REAL_DATA_TEST.md](REAL_DATA_TEST.md). That run is the evidence behind the doctor/QC requirements above.
 
 ## 12. Milestones
 

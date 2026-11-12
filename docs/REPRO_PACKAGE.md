@@ -128,6 +128,14 @@ Conventions for every script:
 - logs to `logs/<subject>/<stage>.log` and `logs/group/<analysis>.log`;
 - `--dry-run` prints the exact commands (this is what the verification test checks).
 
+`doctor.sh` verifies: interpreter version, `fastfuncstuff` import, FFS version/commit,
+required binaries (`bash`, `zstd` if used, `afni`/FreeSurfer only if the pipeline used
+them), **the `ffs_*` entry points named by the frozen scripts** (a source checkout needs a
+PATH shim), the dataset root and every input hash, and free space. On macOS it also requires
+`matplotlib` + a writable `MPLCONFIGDIR` for QC and records that QC runs on CPU when the
+recorded device is MPS — all three were real failures in the first real-data run
+([REAL_DATA_TEST.md](REAL_DATA_TEST.md)). It prints a copy-paste fix, then exits non-zero.
+
 Subject runs are independent and bounded-parallel (`--jobs`). The group stages start only
 after every included subject passes `00_cohort.sh`; there is no scheduler and no cluster
 dependency in v1 (cohorts are expected in the 10–50 subject range).
