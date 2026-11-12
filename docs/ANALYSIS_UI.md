@@ -2,11 +2,14 @@
 
 Status: **draft for review** — the UI half of [WORKFLOW.md](WORKFLOW.md).
 
-**U0 implementation:** [`ffs-analysis-ui/`](../ffs-analysis-ui/) is installed as a bundle. Its
-Host half serves a fixture snapshot built from the ds005165 run; its Client half is the
-right-sidebar **FFS analysis** tab (pipeline, data, QC, results, cohort, group, provenance).
-Only "Load in viewer" is live. Open it from **Analysis** in the Session header, or from the
-sidebar tab guide; agent tool `ffs_analysis_show` reveals it.
+**U0/U1 prototype:** [`ffs-analysis-ui/`](../ffs-analysis-ui/) is installed as a bundle. It
+serves a fixture snapshot from the ds005165 run, and becomes **live** after
+`POST /ffs-analysis/plan` (or the `ffs_analysis_plan` tool) generates an `ffs_autoproc` plan —
+script and design specs only, no execution. The live snapshot is parsed from the generated
+script, its log and the work directory; the plan is recorded in
+`work/ffs-analysis-project.json`. The tab's **Plan pipeline / Re-plan** button drives it,
+article loading goes to the viewer, and `ffs_analysis_show` reveals the tab. Open it from
+**Analysis** in the Session header or the sidebar tab guide.
 
 The workflow design covered execution, provenance, and plugin contracts. This document
 covers what the user actually looks at: a dedicated inspection surface for the pipeline,
@@ -88,8 +91,10 @@ sections are filtered by the currently selected subject.
   skipped / failed / pending`); click a node for its label, duration and status. A vertical
   flow, not a chip row, because the sidebar is narrow and the order is the point.
 - Live progress from the DSH job: bar, current stage, elapsed, and a **Cancel** action.
-- Actions: `Plan`, `Run`, `Resume`, `Open script`, `Replay stage`, `Reveal work dir`
-  (via the existing open-in-app service).
+- Actions: **Plan pipeline / Re-plan** (live; `ffs_autoproc`, no execution), then
+  `Run`, `Resume`, `Open script`, `Replay stage`, `Reveal work dir` (M2, via the existing
+  open-in-app service). A live snapshot's flow is parsed from the generated script; a stale
+  log marks the stages pending rather than pretending the plan ran.
 - Failure: the failing node turns red, with the last 40 log lines and the failing command, and "hand to agent".
 
 ### Data

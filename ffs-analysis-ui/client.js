@@ -18,6 +18,7 @@ window.__ModuleLoader__.load({
     const { useCallback, useEffect, useRef, useState } = React
 
     const SNAPSHOT = '/ffs-analysis/snapshot'
+    const PLAN = '/ffs-analysis/plan'
     const TYPE_ID = '@local/ffs-analysis-ui'
     const KIND = 'ffs-analysis'
     const VIEWER_TAB = 'ffs-viewer'
@@ -75,6 +76,13 @@ window.__ModuleLoader__.load({
       exportDisabled: 'Available after settle/export lands (M3).',
       prototype: 'UI prototype · fixture snapshot from the ds005165 run',
       loaded: 'loaded in the viewer',
+      plan: 'Plan pipeline',
+      replan: 'Re-plan',
+      planning: 'Planning…',
+      planDone: 'Plan generated',
+      planFailed: 'Plan failed',
+      sourceLive: 'live',
+      sourceFixture: 'fixture',
       loadFailed: 'Load failed',
       notDataset: 'Only imaging artifacts can be loaded into the viewer.',
       copied: 'Path copied',
@@ -389,7 +397,7 @@ window.__ModuleLoader__.load({
           : null)
     }
 
-    function PipelineSection({ snap, t }) {
+    function PipelineSection({ snap, t, onPlan, planning }) {
       const pipeline = snap.pipeline || {}
       const stages = Array.isArray(pipeline.stages) ? pipeline.stages : []
       const completion = stages.length
@@ -400,9 +408,17 @@ window.__ModuleLoader__.load({
           h('div', { className: 'ffa-row' },
             h(StatusPill, { status: pipeline.status }),
             h('span', { className: 'ffa-muted ffa-small' }, `${t('elapsed')} ${formatSeconds(pipeline.elapsedSeconds)}`),
-            h('span', { className: 'ffa-muted ffa-small' }, `${stages.length} ${t('stages')}`)),
+            h('span', { className: 'ffa-muted ffa-small' }, `${stages.length} ${t('stages')}`),
+            h('span', { className: 'ffa-spacer' }),
+            h('button', {
+              className: 'ffa-btn',
+              onClick: onPlan,
+              disabled: planning,
+              title: 'Generate a new ffs_autoproc plan (script only, no execution)',
+            }, planning ? t('planning') : (snap.source === 'live' ? t('replan') : t('plan')))),
           h('div', { className: 'ffa-progress' }, h('span', { style: { width: `${completion}%` } })),
-          h(StageFlow, { stages, t })),
+          h(StageFlow, { stages, t }),
+          snap.note ? h('div', { className: 'ffa-small ffa-muted' }, snap.note) : null),
         h(Card, { title: t('script') },
           h('dl', { className: 'ffa-kv' },
             h('dt', null, t('script')),
@@ -577,6 +593,7 @@ window.__ModuleLoader__.load({
       const { data: snap, error, loading, refreshing, refresh } = useSnapshot()
       const [section, setSection] = useState('pipeline')
       const [busy, setBusy] = useState(null)
+      const [planning, setPlanning] = useState(false)
       const [toast, setToast] = useState(null)
 
       useEffect(() => {
@@ -584,6 +601,28 @@ window.__ModuleLoader__.load({
         const timer = setTimeout(() => setToast(null), 4200)
         return () => clearTimeout(timer)
       }, [toast])
+
+      const planPipeline = useCallback(async () => {
+        setPlanning(true)
+        try {
+          const res = await fetch(PLAN, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({}),
+          })
+          const payload = await res.json().catch(() => null)
+          if (!res.ok || !payload || payload.ok !== true) {
+            throw new Error(payload?.error?.message || `plan failed (${res.status})`)
+          }
+          setToast(`${t('planDone')} · ${payload.stages ?? '?'} stages`)
+          await refresh()
+        } catch (e) {
+          setToast(`${t('planFailed')}: ${e && e.message || e}`)
+        } finally {
+          setPlanning(false)
+        }
+      }, [refresh, t])
 
       const openViewer = useCallback(() => {
         try {
@@ -649,7 +688,7 @@ window.__ModuleLoader__.load({
       }
 
       let content
-      if (section === 'pipeline') content = h(PipelineSection, { snap, t })
+      if (section === 'pipeline') content = h(PipelineSection, { snap, t, onPlan: planPipeline, planning })
       else if (section === 'data') content = h(DataSection, { snap, t, onLoad: loadIntoViewer, onCopy: copyPath, busy })
       else if (section === 'qc') content = h(QcSection, { snap, t })
       else if (section === 'results') content = h(ResultsSection, { snap, t, onOpenViewer: openViewer })
@@ -661,6 +700,7 @@ window.__ModuleLoader__.load({
         h('header', { className: 'ffa-head' },
           h('span', { className: 'ffa-brand', title: t('title') }, h(AnalysisIcon, { size: 15 }), t('title')),
           h('span', { className: 'ffa-sub' }, `${snap.project?.dataset || ''} · ${snap.project?.subject || ''}`),
+          h('span', { className: 'ffa-tag' }, snap.source === 'live' ? t('sourceLive') : t('sourceFixture')),
           h('span', { className: 'ffa-spacer' }),
           h(StatusPill, { status: pipeline.status }),
           h('button', { className: 'ffa-btn', onClick: refresh, disabled: refreshing, title: t('refresh') }, refreshing ? '…' : t('refresh')),

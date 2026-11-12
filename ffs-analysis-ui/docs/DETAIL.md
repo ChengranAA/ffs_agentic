@@ -16,7 +16,7 @@ snapshot built from the ds005165 run documented in
 
 | Section | Shows |
 |---|---|
-| Pipeline | run card, stage flow (`stage02` … `stage12`, numbered nodes on a rail), elapsed time, script and log tail |
+| Pipeline | run card, stage flow (`stage02` … `stage12`, numbered nodes on a rail), elapsed time, script and log tail, **Plan pipeline / Re-plan** |
 | Data | artifact table with kind/stage/size, artifact detail with path and display hints, **Load in viewer** |
 | QC | QC figures (motion, tSNR, carpet) and the note about CPU-only QC on this Mac |
 | Results | REML model summary, contrasts and peak, preview montage, empty cluster-table state |
@@ -26,17 +26,22 @@ snapshot built from the ds005165 run documented in
 
 ## Interactions
 
+- **Plan pipeline / Re-plan** posts to `/ffs-analysis/plan`, which runs `ffs_autoproc`
+  (script + design specs only, no execution) and writes `work/ffs-analysis-project.json`.
+  The tab then serves the **live** snapshot: stages parsed from the generated script,
+  artifacts from the work directory, a stale log shown as pending rather than as a run.
 - **Load in viewer** calls the FFS viewer's authenticated `/ffs` channel with
-  `load_paths` and then reveals the viewer tab. It is the only live integration today; the
-  rest of the tab reads the fixture snapshot.
-- **Refresh** re-fetches `/ffs-analysis/snapshot`.
-- The snapshot is polled every 10 s; the fixture's `rev` is its file mtime.
+  `load_paths` and then reveals the viewer tab.
+- **Refresh** re-fetches `/ffs-analysis/snapshot`; the snapshot is polled every 10 s.
 
-## Current limitations
+## Live vs fixture
 
-- **Fixture data only.** The snapshot comes from `fixtures/demo.json`; no compute, no live
-  manifest, no settle/export yet. Pipeline/QC/cohort/group actions are displayed but not
-  executable.
+- **Fixture** (`source: "fixture"`): the rich ds005165 demo from `fixtures/demo.json` —
+  useful when no plan exists yet.
+- **Live** (`source: "live"`): after a plan, built from the real script/log/work dir. The
+  header shows a `live`/`fixture` tag.
+- **No execution.** Run, QC, GLM, settle and export are still M2–M3; Plan generates the
+  script only.
 - **English UI only** (the `zh` locale covers the plugin metadata, not the tab body).
 - **Cluster tables, exports, cohort matrices for real cohorts** arrive with M3–M5 in
   [`../../docs/WORKFLOW.md`](../../docs/WORKFLOW.md).
