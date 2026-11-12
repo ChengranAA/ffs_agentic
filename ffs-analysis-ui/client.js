@@ -152,6 +152,9 @@ window.__ModuleLoader__.load({
   background: var(--dsw-alias-border-l1); }
 .ffa-flow-step:first-child .ffa-flow-rail::before { top: 50%; }
 .ffa-flow-step:last-child .ffa-flow-rail::before { bottom: 50%; }
+.ffa-flow-step:not(:last-child) .ffa-flow-rail::after { content: ''; position: absolute; bottom: 0;
+  left: 50%; width: 4px; height: 4px; border-right: 1px solid var(--dsw-alias-border-l2);
+  border-bottom: 1px solid var(--dsw-alias-border-l2); transform: translateX(-50%) rotate(45deg); }
 .ffa-flow-node { position: relative; z-index: 1; width: 22px; height: 22px; border-radius: 50%;
   border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1);
   display: flex; align-items: center; justify-content: center;
