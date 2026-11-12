@@ -1262,8 +1262,10 @@ window.__ModuleLoader__.load({
       const compact = width > 0 && width < 640
       const railVisible = railPref === null ? !compact : railPref
       const showRail = railVisible && !compact
-      const surfacesLoaded = (snapshot.surfaces?.loaded || []).length > 0
-      const surfaceSubjectName = snapshot.surfaces?.subject ? snapshot.surfaces.subject.split('/').pop() : null
+      // The body can render while the first snapshot is still in flight (the layout may
+      // already be restored), so never dereference snapshot unguarded here.
+      const surfacesLoaded = (snapshot?.surfaces?.loaded || []).length > 0
+      const surfaceSubjectName = snapshot?.surfaces?.subject ? snapshot.surfaces.subject.split('/').pop() : null
       return h('div', { className: 'ffs-root', ref: rootRef },
         h('div', { className: 'ffs-header' },
           h('span', { className: 'ffs-brand', title: t('title') }, h(FfsIcon, { size: 15 }), 'FFS'),
@@ -3648,7 +3650,7 @@ window.__ModuleLoader__.load({
               : h('div', { className: 'ffs-hint' }, 'No subject loaded. Add one from Data → Subjects.'),
             h('div', { className: 'ffs-info-row' },
               h('span', { className: 'ffs-info-label' }, 'Subject'),
-              h('span', { className: 'ffs-info-value', title: snapshot.surfaces.subject || '' }, surfaceSubjectName || 'none'),
+              h('span', { className: 'ffs-info-value', title: snapshot?.surfaces?.subject || '' }, surfaceSubjectName || 'none'),
               surfacesLoaded
                 ? h('button', {
                   type: 'button', className: 'ffs-btn', disabled: busy,
