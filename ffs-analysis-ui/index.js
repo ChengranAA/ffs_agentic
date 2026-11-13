@@ -577,8 +577,10 @@ function buildLiveSnapshot(state) {
   }
   if (view.running) notes.push('Run in progress; the flow and log update from the running script.')
   const settledRecord = readSettled()
-  const cohort = discoverCohort()
-  const groupAnalyses = readGroupState().analyses.map(groupSummaryRecord)
+  const cohort = discoverCohort(cohortRootForState(state))
+  const groupAnalyses = readGroupState().analyses
+    .filter((item) => (item.cohortRoot || 'work/ds005165') === cohort.root)
+    .map(groupSummaryRecord)
   const groupStatus = groupAnalyses.length
     ? 'ready'
     : (cohort.included >= 2 ? 'ready-to-run' : 'not-ready')
@@ -1574,23 +1576,38 @@ function doctorChecks() {
 }
 
 // ------------------------------------------------------------------ cohort / group
-const COHORT_ROOT = path.join(PROJECT_ROOT, 'work', 'ds005165')
+const DEFAULT_COHORT_ROOT = path.join(PROJECT_ROOT, 'work', 'ds005165')
 const GROUP_STATE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-analysis-group.json')
 
-function discoverCohort() {
+/** The cohort lives beside the current subject's work dir: work/<dataset>/<subject>. */
+function cohortRootForState(state) {
+  if (!state || !state.workDir) return DEFAULT_COHORT_ROOT
+  try {
+    return path.dirname(resolveInside(state.workDir, 'workDir'))
+  } catch {
+    return DEFAULT_COHORT_ROOT
+  }
+}
+
+function currentCohortRoot() {
+  return cohortRootForState(readProjectState())
+}
+
+function discoverCohort(workRootAbs) {
+  const rootAbs = workRootAbs || DEFAULT_COHORT_ROOT
   const cohort = {
-    root: path.relative(PROJECT_ROOT, COHORT_ROOT),
+    root: path.relative(PROJECT_ROOT, rootAbs),
     status: 'empty',
     total: 0,
     included: 0,
     subjects: [],
     note: 'Run at least two subjects to enable a group analysis.',
   }
-  if (!existsSync(COHORT_ROOT)) return cohort
+  if (!existsSync(rootAbs)) return cohort
   const bySubject = new Map()
-  for (const entry of readdirSync(COHORT_ROOT, { withFileTypes: true })) {
+  for (const entry of readdirSync(rootAbs, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
-    const workAbs = path.join(COHORT_ROOT, entry.name)
+    const workAbs = path.join(rootAbs, entry.name)
     let files = []
     try {
       files = readdirSync(workAbs)
@@ -1617,13 +1634,31 @@ function discoverCohort() {
         statsMtime,
         include: true,
         status: statsAbs ? 'completed' : 'planned',
-        variants: [entry.name === `sub-${subject}` ? 'canonical' : entry.name],
       }
-      const previous = bySubject.get(subject)
-      if (!previous || record.statsMtime > previous.statsMtime) bySubject.set(subject, record)
+      const variant = {
+        id: entry.name === `sub-${subject}` ? 'canonical' : entry.name,
+        workDir: record.workDir,
+        stats: record.stats,
+        status: record.status,
+      }
+      let group = bySubject.get(subject)
+      if (!group) {
+        group = { variants: [] }
+        bySubject.set(subject, group)
+      }
+      group.variants.push(variant)
+      if (!group.record) {
+        group.record = record
+      } else if (record.statsMtime > group.record.statsMtime) {
+        // Keep the canonical work dir as the subject's primary record; variants stay listed.
+        const currentCanonical = path.basename(group.record.workDir) === `sub-${subject}`
+        if (!currentCanonical) group.record = record
+      }
     }
   }
-  const subjects = [...bySubject.values()].sort((a, b) => a.subject.localeCompare(b.subject))
+  const subjects = [...bySubject.values()]
+    .map((group) => ({ ...group.record, variants: group.variants }))
+    .sort((a, b) => a.subject.localeCompare(b.subject))
   cohort.subjects = subjects
   cohort.total = subjects.length
   cohort.included = subjects.filter((subject) => subject.stats).length
@@ -1687,8 +1722,334 @@ function groupSummaryRecord(analysis) {
   }
 }
 
+function validateCohort(workRootAbs) {
+  const rootAbs = workRootAbs || currentCohortRoot()
+  const cohort = discoverCohort(rootAbs)
+  const statsSubjects = cohort.subjects.filter((subject) => subject.stats)
+  let metadata = []
+  if (statsSubjects.length) {
+    try {
+      const output = execFileSync(pythonPath(), [
+        path.join(PKG_DIR, 'scripts', 'bucket_meta.py'),
+        ...statsSubjects.map((subject) => resolveInside(subject.stats, 'stats')),
+      ], { env: ffsEnv(), encoding: 'utf8', timeout: 180000 })
+      metadata = JSON.parse(output)
+    } catch (error) {
+      metadata = []
+    }
+  }
+  const byPath = new Map(metadata.map((item) => [item.path, item]))
+  let reference = null
+  const subjects = cohort.subjects.map((subject) => {
+    const issues = []
+    const workAbs = resolveInside(subject.workDir, 'workDir')
+    if (!subject.stats) {
+      issues.push({ code: 'missing-output', message: 'no stage12.stats-reml bucket in this work dir' })
+    } else {
+      const info = byPath.get(resolveInside(subject.stats, 'stats'))
+      if (!info || !info.ok) {
+        issues.push({ code: 'unreadable-output', message: (info && info.error) || 'bucket metadata unavailable' })
+      } else if (!reference) {
+        reference = info
+      } else {
+        const shapeDiff = JSON.stringify(info.shape) !== JSON.stringify(reference.shape)
+        const affineDiff = info.affine.some((row, i) => row.some((value, j) => Math.abs(value - reference.affine[i][j]) > 1e-3))
+        if (shapeDiff || affineDiff) {
+          issues.push({
+            code: 'grid-mismatch',
+            message: `grid ${info.shape.join('x')} does not match reference ${reference.shape.join('x')}`,
+          })
+        }
+      }
+    }
+    try {
+      const scriptAbs = resolveInside(subject.script, 'script')
+      if (!existsSync(scriptAbs)) issues.push({ code: 'missing-script', message: 'proc_sub-*.sh missing' })
+      const design = readdirSync(workAbs).find((name) => /^stage11\.design\..*\.toml$/.test(name))
+      if (!design) issues.push({ code: 'missing-design', message: 'stage11.design.*.toml missing' })
+      if (!existsSync(path.join(workAbs, 'stimuli'))) {
+        issues.push({ code: 'missing-stimuli', message: 'stimuli/ missing' })
+      }
+    } catch {
+      issues.push({ code: 'missing-workdir', message: 'work dir unreadable' })
+    }
+    return {
+      id: subject.id,
+      workDir: subject.workDir,
+      stats: subject.stats,
+      status: subject.status,
+      variants: subject.variants || [],
+      ok: issues.length === 0,
+      issues,
+    }
+  })
+  return {
+    schema: 'ffs-cohort-validation/1',
+    root: path.relative(PROJECT_ROOT, rootAbs),
+    ok: subjects.length > 0 && subjects.every((subject) => subject.ok),
+    checkedAt: new Date().toISOString(),
+    subjects,
+  }
+}
+
+function walkFiles(root) {
+  const files = []
+  const visit = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const absolute = path.join(dir, entry.name)
+      if (entry.isDirectory()) visit(absolute)
+      else if (entry.isFile()) files.push(absolute)
+    }
+  }
+  visit(root)
+  return files
+}
+
+function copyTree(src, dst) {
+  mkdirSync(dst, { recursive: true })
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
+    const from = path.join(src, entry.name)
+    const to = path.join(dst, entry.name)
+    if (entry.isDirectory()) copyTree(from, to)
+    else if (entry.isFile()) copyFileSync(from, to)
+  }
+}
+
+function subjectRunCount(workAbs) {
+  try {
+    const scriptName = readdirSync(workAbs).find((name) => /^proc_sub-.*\.sh$/.test(name))
+    if (scriptName) {
+      const text = readFileSync(path.join(workAbs, scriptName), 'utf8')
+      const match = /RUN_KEYS=\(([^)]*)\)/.exec(text)
+      if (match) return match[1].trim().split(/\s+/).filter(Boolean).length
+    }
+    return readdirSync(workAbs).filter((name) => /^stage02\.moco\..*_mean\.nii/.test(name)).length || null
+  } catch {
+    return null
+  }
+}
+
+function yamlString(value) {
+  return JSON.stringify(String(value))
+}
+
+function subjectYaml(subject, checked) {
+  const lines = [
+    'schema: ffs-subject/1',
+    `subject: ${yamlString(subject.id)}`,
+    `work_dir: ${yamlString(subject.workDir)}`,
+    `runs: ${subjectRunCount(resolveInside(subject.workDir, 'workDir')) ?? 'unknown'}`,
+    `status: ${yamlString(subject.status)}`,
+    'variants:',
+  ]
+  for (const variant of subject.variants || []) {
+    lines.push(`  - id: ${yamlString(variant.id)}`)
+    lines.push(`    work_dir: ${yamlString(variant.workDir)}`)
+    lines.push(`    status: ${yamlString(variant.status)}`)
+    const variantDir = variant.id === 'canonical' ? `subjects/${subject.id}` : `subjects/${subject.id}/variants/${variant.id}`
+    lines.push(`    stats: ${variant.stats ? yamlString(`${variantDir}/${path.basename(variant.stats)}`) : 'null'}`)
+  }
+  lines.push('validation:')
+  lines.push(`  ok: ${checked ? checked.ok : false}`)
+  lines.push('  issues:')
+  if (checked && checked.issues.length) {
+    for (const issue of checked.issues) lines.push(`    - ${yamlString(`${issue.code}: ${issue.message}`)}`)
+  } else {
+    lines.push('    []')
+  }
+  return `${lines.join('\n')}\n`
+}
+
+function cohortYaml(cohort, validation) {
+  const lines = [
+    'schema: ffs-cohort/1',
+    `generated_at: ${yamlString(validation.checkedAt)}`,
+    `dataset: ${yamlString(path.basename(validation.root))}`,
+    `work_root: ${yamlString(validation.root)}`,
+    'subjects:',
+  ]
+  for (const subject of cohort.subjects) {
+    lines.push(`  - id: ${yamlString(subject.id)}`)
+    lines.push(`    dir: ${yamlString(`subjects/${subject.id}`)}`)
+    lines.push(`    work_dir: ${yamlString(subject.workDir)}`)
+    lines.push(`    runs: ${subjectRunCount(resolveInside(subject.workDir, 'workDir')) ?? 'unknown'}`)
+    lines.push(`    variants: [${(subject.variants || []).map((variant) => yamlString(variant.id)).join(', ')}]`)
+  }
+  lines.push('validation:')
+  lines.push(`  ok: ${validation.ok}`)
+  lines.push(`  checked_at: ${yamlString(validation.checkedAt)}`)
+  lines.push(`  subjects: ${validation.subjects.length}`)
+  return `${lines.join('\n')}\n`
+}
+
+function cohortRunScript(subjectIds) {
+  return `#!/usr/bin/env bash
+# Re-run every subject's frozen autoproc script with bounded parallelism.
+# MAX_PARALLEL controls how many subjects run at once (default 2).
+set -euo pipefail
+HERE="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+MAX_PARALLEL="\${MAX_PARALLEL:-2}"
+SUBJECTS=(${subjectIds.map((id) => yamlString(id)).join(' ')})
+
+run_one() {
+  local subject="$1"
+  local dir="$HERE/subjects/$subject"
+  echo "run: $subject"
+  ( cd "$dir" && bash "proc_$subject.sh" > "proc_$subject.log" 2>&1 )
+  echo "done: $subject"
+}
+
+for subject in "\${SUBJECTS[@]}"; do
+  while (( $(jobs -rp | wc -l) >= MAX_PARALLEL )); do wait -n; done
+  run_one "$subject" &
+done
+wait
+echo "cohort done"
+`
+}
+
+function cohortValidateScript() {
+  return `#!/usr/bin/env python3
+"""Validate the exported cohort: scripts, designs, stimuli and a common grid."""
+from __future__ import annotations
+import json, sys
+from pathlib import Path
+try:
+    import nibabel as nib
+except ImportError:
+    nib = None
+
+HERE = Path(__file__).resolve().parent
+data = json.loads((HERE / "cohort.json").read_text())
+issues = []
+reference = None
+for subject in data["subjects"]:
+    sid = subject["id"]
+    root = HERE / "subjects" / sid
+    if not (root / f"proc_{sid}.sh").exists():
+        issues.append(f"{sid}: missing proc_{sid}.sh")
+    if not list(root.glob("stage11.design.*.toml")):
+        issues.append(f"{sid}: missing stage11.design.*.toml")
+    if not (root / "stimuli").is_dir():
+        issues.append(f"{sid}: missing stimuli/")
+    stats = subject.get("stats")
+    if not stats:
+        issues.append(f"{sid}: missing stage12 stats bucket")
+        continue
+    if nib is None:
+        continue
+    try:
+        stats_path = Path(stats)
+        if not stats_path.is_absolute():
+            stats_path = HERE / stats_path
+        image = nib.load(str(stats_path))
+        shape = tuple(image.shape)
+        affine = image.affine
+        if reference is None:
+            reference = (shape, affine)
+        elif shape != reference[0]:
+            issues.append(f"{sid}: grid {shape} != {reference[0]}")
+    except Exception as error:
+        issues.append(f"{sid}: cannot read stats ({error})")
+print("cohort validation:", "ok" if not issues else "FAILED")
+for issue in issues:
+    print(" -", issue)
+sys.exit(0 if not issues else 1)
+`
+}
+
+function exportCohortPackage(params = {}) {
+  const rootAbs = params.workRoot ? resolveInside(params.workRoot, 'workRoot') : currentCohortRoot()
+  const validation = validateCohort(rootAbs)
+  if (!validation.subjects.length) {
+    throw Object.assign(new Error('cohort has no subjects to export'), { code: 'cohort-empty' })
+  }
+  const failures = validation.subjects.filter((subject) => !subject.ok)
+  if (failures.length) {
+    throw Object.assign(
+      new Error(`cohort validation failed: ${failures.map((subject) => `${subject.id} (${subject.issues.map((issue) => issue.code).join(', ')})`).join('; ')}`),
+      { code: 'cohort-invalid', issues: failures },
+    )
+  }
+  const cohort = discoverCohort(rootAbs)
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-')
+  const dir = path.join(EXPORT_ROOT, `ffs_cohort_${path.basename(rootAbs)}_${stamp}`)
+  mkdirSync(path.join(dir, 'subjects'), { recursive: true })
+  let fileCount = 0
+  for (const subject of cohort.subjects) {
+    const workAbs = resolveInside(subject.workDir, 'workDir')
+    const checked = validation.subjects.find((item) => item.id === subject.id)
+    for (const variant of subject.variants || []) {
+      const variantWork = resolveInside(variant.workDir, 'variant work dir')
+      const target = variant.id === 'canonical'
+        ? path.join(dir, 'subjects', subject.id)
+        : path.join(dir, 'subjects', subject.id, 'variants', variant.id)
+      mkdirSync(target, { recursive: true })
+      const scriptName = readdirSync(variantWork).find((name) => /^proc_sub-.*\.sh$/.test(name))
+      if (scriptName) {
+        const source = path.join(variantWork, scriptName)
+        const text = readFileSync(source, 'utf8').replace(/^OUT=.*$/m, 'OUT="$(cd "$(dirname "$0")" && pwd)"')
+        writeFileSync(path.join(target, scriptName), text)
+        try { chmodSync(path.join(target, scriptName), 0o755) } catch { /* best effort */ }
+      }
+      for (const name of readdirSync(variantWork).filter((item) => /^stage11\.design\..*\.toml$/.test(item))) {
+        copyFileSync(path.join(variantWork, name), path.join(target, name))
+      }
+      const stimuli = path.join(variantWork, 'stimuli')
+      if (existsSync(stimuli)) copyTree(stimuli, path.join(target, 'stimuli'))
+      if (variant.stats) {
+        copyFileSync(resolveInside(variant.stats, 'stats'), path.join(target, path.basename(variant.stats)))
+      }
+    }
+    const subjectRoot = path.join(dir, 'subjects', subject.id)
+    writeFileSync(path.join(subjectRoot, 'subject.yaml'), subjectYaml(subject, checked))
+  }
+  writeFileSync(path.join(dir, 'cohort.yaml'), cohortYaml(cohort, validation))
+  writeFileSync(path.join(dir, 'cohort.json'), `${JSON.stringify({
+    schema: 'ffs-cohort/1',
+    generated_at: validation.checkedAt,
+    dataset: path.basename(validation.root),
+    work_root: validation.root,
+    source_root: PROJECT_ROOT,
+    subjects: validation.subjects.map((subject) => ({
+      id: subject.id,
+      work_dir: subject.workDir,
+      stats: subject.stats ? `subjects/${subject.id}/${path.basename(subject.stats)}` : null,
+      variants: subject.variants,
+      ok: subject.ok,
+      issues: subject.issues,
+    })),
+  }, null, 2)}\n`)
+  writeFileSync(path.join(dir, 'run.sh'), cohortRunScript(cohort.subjects.map((subject) => subject.id)))
+  writeFileSync(path.join(dir, 'validate.py'), cohortValidateScript())
+  try { chmodSync(path.join(dir, 'run.sh'), 0o755) } catch { /* best effort */ }
+  writeFileSync(path.join(dir, 'STEPS.md'), `# Cohort rerun\n\n${cohort.included} subjects, ${validation.ok ? 'validated' : 'FAILED'}.\n\n\`\`\`bash\nMAX_PARALLEL=2 ./run.sh\npython3 validate.py\n\`\`\`\n\nEach subject directory holds its frozen autoproc script, design spec, stimuli and\n\`subject.yaml\`; non-canonical variants live under \`subjects/<id>/variants/\`.\n`)
+  writeFileSync(path.join(dir, 'METHODS.md'), `# Methods — cohort\n\nThe cohort contains **${cohort.included} subjects** processed with the frozen autoproc\nscripts in \`subjects/\`. Each subject's \`subject.yaml\` records its variants, work dir,\nrun count and validation status. The cohort was validated before export: every subject\nhas a script, design spec, stimuli and a first-level statistics bucket, and all buckets\nshare one grid (${validation.ok ? 'checked' : 'not checked'} on ${validation.checkedAt}).\n\nGroup-level analyses are added by the group export (M5).\n`)
+  const files = {}
+  for (const absolute of walkFiles(dir)) {
+    files[path.relative(dir, absolute)] = sha256File(absolute)
+    fileCount += 1
+  }
+  writeFileSync(path.join(dir, 'manifest.json'), `${JSON.stringify({
+    schema: 'ffs-cohort-package/1',
+    createdAt: validation.checkedAt,
+    workRoot: validation.root,
+    subjects: cohort.subjects.map((subject) => subject.id),
+    validation,
+    files,
+  }, null, 2)}\n`)
+  return {
+    ok: true,
+    dir: path.relative(PROJECT_ROOT, dir),
+    subjects: cohort.subjects.length,
+    files: fileCount + 1,
+    validation,
+  }
+}
+
 function runGroupAnalysis(params = {}) {
-  const cohort = discoverCohort()
+  const rootAbs = currentCohortRoot()
+  const cohort = discoverCohort(rootAbs)
   const subjects = cohort.subjects.filter((subject) => subject.stats)
   if (subjects.length < 2) {
     throw Object.assign(new Error('need at least two completed subjects for 3dMEMA'), { code: 'cohort-too-small' })
@@ -1708,7 +2069,7 @@ function runGroupAnalysis(params = {}) {
     picks.push({ subject, statsAbs, coefIndex, tIndex })
   }
   const id = `group-${contrast}`
-  const workAbs = path.join(COHORT_ROOT, id)
+  const workAbs = path.join(rootAbs, id)
   mkdirSync(workAbs, { recursive: true })
   const prefix = path.join(workAbs, `${id}.nii.gz`)
   const env = ffsEnv()
@@ -1772,7 +2133,8 @@ function runGroupAnalysis(params = {}) {
     mean: firstMean || null,
   }
   const state = readGroupState()
-  state.analyses = state.analyses.filter((item) => item.id !== id).concat(record)
+  const rootRel = path.relative(PROJECT_ROOT, rootAbs)
+  state.analyses = state.analyses.filter((item) => !(item.id === id && (item.cohortRoot || 'work/ds005165') === rootRel)).concat(record)
   writeGroupState(state)
   return groupSummaryRecord(record)
 }
@@ -1911,6 +2273,37 @@ export function apply(ctx) {
   }), 'ffs-analysis: cancel tool')
 
   ctx.effect(() => ctx.tools.register({
+    name: 'ffs_cohort',
+    description: [
+      'List or validate the cohort beside the current subject work dir: per-subject stats,',
+      'design/stimuli presence and grid agreement (missing-output and grid-mismatch fail',
+      'clearly). Defaults to validation of the current dataset cohort.',
+    ].join('\n'),
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['list', 'validate', 'export'], description: 'list, validate (default) or export the cohort package.' },
+        workRoot: { type: 'string', description: 'Cohort work root, project-relative (default: current dataset).' },
+      },
+      required: [],
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    },
+    async execute(args) {
+      const workRoot = args?.workRoot ? resolveInside(args.workRoot, 'workRoot') : currentCohortRoot()
+      if (args?.action === 'export') {
+        return JSON.stringify(exportCohortPackage({ workRoot: path.relative(PROJECT_ROOT, workRoot) }), null, 1)
+      }
+      const cohort = discoverCohort(workRoot)
+      if (args?.action === 'list') return JSON.stringify({ ok: true, cohort }, null, 1)
+      const validation = validateCohort(workRoot)
+      return JSON.stringify({ ok: validation.ok, cohort, validation }, null, 1)
+    },
+  }), 'ffs-analysis: cohort tool')
+
+  ctx.effect(() => ctx.tools.register({
     name: 'ffs_project_scan',
     description: [
       'Scan a BIDS root and the FFS environment: subjects, sessions, runs, events, T1w and',
@@ -1939,7 +2332,7 @@ export function apply(ctx) {
     name: 'ffs_analysis_group',
     description: [
       'Run a one-sample group analysis with AFNI 3dMEMA across every completed subject',
-      'discovered under work/ds005165, using that contrast\'s Coef and Tstat sub-bricks',
+      'in the active cohort work root, using that contrast\'s Coef and Tstat sub-bricks',
       'from each subject\'s REML bucket. Requires at least two subjects.',
     ].join('\n'),
     parameters: {
@@ -2078,6 +2471,25 @@ export function apply(ctx) {
         }
         try {
           writeJson(res, 200, cancelRun())
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'cohort') {
+        try {
+          const body = req.method === 'POST' ? await readJsonBody(req) : {}
+          const workRoot = body.workRoot ? resolveInside(body.workRoot, 'workRoot') : currentCohortRoot()
+          if (body.action === 'export') {
+            writeJson(res, 200, { ok: true, ...exportCohortPackage({ workRoot: path.relative(PROJECT_ROOT, workRoot) }) })
+            return
+          }
+          writeJson(res, 200, {
+            ok: true,
+            cohort: discoverCohort(workRoot),
+            validation: validateCohort(workRoot),
+          })
         } catch (error) {
           routeError(res, error)
         }

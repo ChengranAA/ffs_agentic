@@ -11,7 +11,7 @@ or command that proves it. Update this file whenever a milestone moves.
 | **M1 — Plan** | **done** | `ffs_analysis_plan` writes `proc_sub-001.sh` + design specs for the fixture (2 runs); `scripts/check_stage_parity.py` proves planned stages equal emitted log banners (stage12 exempt: commented banner), order and finish included |
 | **M2 — Run + QC + viewer** | partial (acceptance behaviour met) | fixture pipeline completes in 91 s; stage progress/times visible; QC produced 17 figures + `qc_review.tsv` (7 rows × 38 cols) surfaced in the tab; viewer screenshot saved under `screenshots/`; run state self-heals from the log after a Host reload. Missing: `ctx.jobs` wrapper and resume UI |
 | **M3 — Analysis** | partial | stats buckets loaded with sub-brick/threshold/colormap via viewer hand-off; results inspector (peaks/clusters); settle/export package. Missing: threshold/correction controls, screenshots |
-| **M4 — Cohort** | partial | cohort auto-discovery from work dirs; `sub-01`+`sub-02` first-level fits; cohort UI matrix. Missing: 3-subject fixture runs, `subjects/` packaging, `subject.yaml` variants, include/exclude/validate UI, bounded-parallel `run.sh` |
+| **M4 — Cohort** | **done (backend + package); UI partial** | fixture cohort of 3 subjects on one 42³ grid; `ffs_cohort` list/validate/export; `subjects/` + `cohort.yaml` + `subject.yaml` (canonical + hand-edited `sub-002-edited` variant); bounded-parallel `run.sh` reran all three and revalidated; negative cohort reports `grid-mismatch` and `missing-output` and export refuses. UI: matrix/variants/validate button; include/exclude + subject detail still open (U4) |
 | **M5 — Group level** | partial | one-sample 3dMEMA over 2 subjects (native common grid via 3dresample), group clusters + viewer hand-off. Missing: two-group/covariate designs, cluster/permutation corrections, engine adapters, group package + methods |
 | **M6 — Surface + interop + replay** | not started | — |
 
@@ -23,7 +23,7 @@ or command that proves it. Update this file whenever a milestone moves.
 | **U1** plan/review | done | Plan produces `proc_sub-*.sh`, design spec and stage flow |
 | **U2** live run/log | done | progress, stage times, cleaned log, cancel, QC table/figures, viewer screenshots, load-to-viewer |
 | **U3** results/provenance | partial | contrast/cluster tables, viewer hand-off, settle/export, provenance; threshold/correction controls and replay card missing |
-| **U4** cohort | partial | matrix from discovery; variants/include/exclude/validate and pending-run view missing |
+| **U4** cohort | partial | matrix, variant list and Validate button with per-subject issue codes; include/exclude and subject detail still missing |
 | **U5** group | partial | analysis cards, run one-sample 3dMEMA, cluster table, viewer sync; engine/correction selectors, two-group form missing |
 | **U6** tool cards/polish | not started | — |
 
@@ -33,7 +33,7 @@ or command that proves it. Update this file whenever a milestone moves.
 |---|---|---|
 | **M3a** settle/export skeleton | done | `exports/ffs_analysis_01_20261112-221452` (16 files, checksums verified) |
 | **M3b** figures/verification/UI card | partial | settle + export card exist; figures, clean-shell rerun and verification modes missing |
-| **M4** cohort package | not started | single-subject package only |
+| **M4** cohort package | **done** | `exports/ffs_cohort_bids-lite_20261113-125046` (28 files): subjects/, cohort.yaml, subject.yaml (incl. variant), run.sh, validate.py, METHODS/STEPS, manifest; `MAX_PARALLEL=2 ./run.sh` reran and `validate.py` passed |
 | **M5** group package | not started | group analysis not exported |
 | **M6** portable lock | not started | — |
 
@@ -46,6 +46,8 @@ or command that proves it. Update this file whenever a milestone moves.
   --script work/bids-lite/sub-001/proc_sub-001.sh \
   --log work/bids-lite/sub-001/proc_sub-001.log            # M1
 ffs_analysis_snapshot                                      # M2: qc figures/review/screenshots
+ffs_cohort validate                                        # M4: 3-subject fixture cohort
+ffs_cohort export                                          # M4: subjects/ + cohort.yaml + run.sh
 ```
 
 Agent tools: `ffs_project_scan`, `ffs_analysis_plan`, `ffs_analysis_run`,

@@ -96,6 +96,10 @@ window.__ModuleLoader__.load({
       runGroup: 'Run group analysis',
       groupRunning: 'Running 3dMEMA…',
       groupFailed: 'Group analysis failed',
+      validateCohort: 'Validate cohort',
+      validating: 'Validating…',
+      cohortOk: 'Cohort valid',
+      cohortFailed: 'Cohort invalid',
       exportFailed: 'Export failed',
       sourceLive: 'live',
       sourceFixture: 'fixture',
@@ -613,24 +617,46 @@ window.__ModuleLoader__.load({
           : null)
     }
 
-    function CohortSection({ snap, t }) {
+    function CohortSection({ snap, t, onValidate, validating, validation }) {
       const cohort = snap.cohort || snap.group?.cohort || {}
       const subjects = Array.isArray(cohort.subjects) ? cohort.subjects : []
+      const checked = new Map((validation?.subjects || []).map((item) => [item.id, item]))
       return h(Card, { title: t('cohortNote'), subtitle: cohort.status || '' },
-        h('div', { className: 'ffa-row ffa-small ffa-muted' },
-          h('span', null, `${cohort.total ?? subjects.length} subject(s)`),
-          h('span', null, `· ${cohort.included ?? '—'} with first-level fits`),
-          cohort.note ? h('span', null, `· ${cohort.note}`) : null),
+        h('div', { className: 'ffa-row' },
+          h('span', { className: 'ffa-small ffa-muted' },
+            `${cohort.total ?? subjects.length} subject(s) · ${cohort.included ?? '—'} included`),
+          h('span', { className: 'ffa-spacer' }),
+          validation
+            ? h(StatusPill, { status: validation.ok ? 'completed' : 'failed' })
+            : null,
+          h('button', {
+            className: 'ffa-btn',
+            onClick: onValidate,
+            disabled: validating || !subjects.length,
+          }, validating ? t('validating') : t('validateCohort'))),
+        validation
+          ? h('div', { className: 'ffa-small', style: { marginTop: 4, color: validation.ok ? 'var(--dsw-alias-state-success-primary, #2e7d32)' : 'var(--dsw-alias-state-error-primary)' } },
+            `${validation.ok ? t('cohortOk') : t('cohortFailed')} · ${validation.checkedAt}`)
+          : (cohort.note ? h('div', { className: 'ffa-small ffa-muted' }, cohort.note) : null),
         subjects.length
           ? h('table', { className: 'ffa-table', style: { marginTop: 8 } },
             h('thead', null, h('tr', null,
-              h('th', null, 'subject'), h('th', null, 'status'), h('th', null, 'work dir'), h('th', null, 'stats'))),
-            h('tbody', null, subjects.map((subject) => h('tr', { key: subject.id },
-              h('td', { className: 'ffa-name' }, subject.id),
-              h('td', null, h(StatusPill, { status: subject.status })),
-              h('td', { className: 'ffa-mono ffa-small' }, subject.workDir || '—'),
-              h('td', { className: 'ffa-mono ffa-small' }, subject.stats ? subject.stats.split('/').pop() : '—')))))
-          : h('div', { className: 'ffa-empty' }, 'No subjects discovered under work/ds005165.'))
+              h('th', null, 'subject'), h('th', null, 'status'), h('th', null, 'variants'), h('th', null, 'work dir'))),
+            h('tbody', null, subjects.map((subject) => {
+              const check = checked.get(subject.id)
+              const issues = check?.issues || []
+              return h('tr', { key: subject.id },
+                h('td', { className: 'ffa-name' }, subject.id),
+                h('td', null, h(StatusPill, { status: issues.length ? 'failed' : subject.status })),
+                h('td', { className: 'ffa-small' }, (subject.variants || []).map((variant) => variant.id).join(', ') || 'canonical'),
+                h('td', null,
+                  h('div', { className: 'ffa-mono ffa-small' }, subject.workDir || '—'),
+                  issues.length
+                    ? h('div', { className: 'ffa-small', style: { color: 'var(--dsw-alias-state-error-primary)' } },
+                      issues.map((issue) => issue.code).join(', '))
+                    : null))
+            })))
+          : h('div', { className: 'ffa-empty' }, 'No subjects discovered under the cohort work root.'))
     }
 
     function GroupSection({ snap, t, onRunGroup, runningGroup, onInspectGroup }) {
@@ -735,6 +761,8 @@ window.__ModuleLoader__.load({
       const [busyRun, setBusyRun] = useState(false)
       const [busyAction, setBusyAction] = useState(null)
       const [busyGroup, setBusyGroup] = useState(false)
+      const [busyCohort, setBusyCohort] = useState(false)
+      const [cohortValidation, setCohortValidation] = useState(null)
       const [toast, setToast] = useState(null)
 
       useEffect(() => {
@@ -862,6 +890,27 @@ window.__ModuleLoader__.load({
           setBusyAction(null)
         }
       }, [refresh, t])
+
+      const validateCohortUi = useCallback(async () => {
+        setBusyCohort(true)
+        try {
+          const res = await fetch('/ffs-analysis/cohort', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ action: 'validate' }),
+          })
+          const payload = await res.json().catch(() => null)
+          if (!res.ok || !payload || !payload.validation) {
+            throw new Error(payload?.error?.message || `validation failed (${res.status})`)
+          }
+          setCohortValidation(payload.validation)
+          setToast(payload.validation.ok ? t('cohortOk') : t('cohortFailed'))
+        } catch (e) {
+          setToast(`${t('cohortFailed')}: ${e && e.message || e}`)
+        } finally {
+          setBusyCohort(false)
+        }
+      }, [t])
 
       const runGroup = useCallback(async () => {
         setBusyGroup(true)
@@ -1014,7 +1063,7 @@ window.__ModuleLoader__.load({
       else if (section === 'data') content = h(DataSection, { snap, t, onLoad: loadIntoViewer, onCopy: copyPath, busy })
       else if (section === 'qc') content = h(QcSection, { snap, t })
       else if (section === 'results') content = h(ResultsSection, { snap, t, onInspect: inspectResults })
-      else if (section === 'cohort') content = h(CohortSection, { snap, t })
+      else if (section === 'cohort') content = h(CohortSection, { snap, t, onValidate: validateCohortUi, validating: busyCohort, validation: cohortValidation })
       else if (section === 'group') content = h(GroupSection, { snap, t, onRunGroup: runGroup, runningGroup: busyGroup, onInspectGroup: inspectGroup })
       else content = h(ProvenanceSection, { snap, t, onSettle: settleAnalysis, onExport: exportAnalysis, busyAction, onCopy: copyPath })
 

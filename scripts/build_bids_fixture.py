@@ -64,7 +64,7 @@ def _anatomy(seed: int) -> np.ndarray:
     image[radius < 0.18 * SHAPE[0] * VOX / 2] = 180.0   # ventricles
     texture = gaussian_filter(rng.standard_normal(SHAPE), sigma=1.0)
     texture /= max(float(texture.std()), 1e-9)
-    image *= 1.0 + 0.02 * texture
+    image *= 1.0 + 0.01 * texture
     return np.clip(image, 0.0, None).astype(np.float32)
 
 
@@ -108,7 +108,7 @@ def _bold(seed: int) -> np.ndarray:
     noise = gaussian_filter(rng.standard_normal((*SHAPE, N_VOL)), sigma=(0.7, 0.7, 0.7, 0.0))
     noise /= max(float(noise.std()), 1e-9)
     data = baseline + np.einsum("ijk,t->ijkt", act, 45.0 * reg)
-    data += 12.0 * noise
+    data += 2.0 * noise
     return np.clip(data, 0.0, None).astype(np.int16)
 
 
@@ -144,7 +144,9 @@ def build(root: Path, seed: int = SEED) -> dict:
     root.mkdir(parents=True, exist_ok=True)
     for subject, spec in SUBJECTS.items():
         session = root / f"sub-{subject}" / "ses-01"
-        anat = _anatomy(seed + int(subject))
+        # The same anatomy for every subject keeps the autoproc grid identical; the
+        # per-subject function seed still differs, and run counts provide the variants.
+        anat = _anatomy(seed)
         anat_path = session / "anat" / f"sub-{subject}_ses-01_T1w.nii.gz"
         anat_img = nib.Nifti1Image(anat, _affine())
         anat_img.header.set_zooms((VOX, VOX, VOX))
