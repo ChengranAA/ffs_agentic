@@ -355,6 +355,9 @@ function writeProjectState(state) {
 }
 
 let RUN = null
+let JOB_SERVICE = null
+let JOBS_CONTROLLER = null
+let ACTIVE_JOB = null
 
 function persistRun() {
   try {
@@ -699,6 +702,7 @@ function buildLiveSnapshot(state) {
       logExcerpt: view.logExcerpt,
     },
     job: {
+      dshId: RUN?.dshJobId || null,
       status: view.status,
       running: view.running,
       currentStage: view.currentStage,
@@ -1050,6 +1054,34 @@ function startRun() {
     stageTimes: {},
   }
   persistRun()
+  if (JOB_SERVICE) {
+    try {
+      RUN.dshJobId = JOB_SERVICE.start({
+        kind: 'bash',
+        label: `FFS ${state.params?.subject ? `sub-${state.params.subject}` : ''} ${path.basename(state.script)}`.trim(),
+        run(job) {
+          ACTIVE_JOB = job
+          try { job.updateProgress('starting') } catch { /* optional */ }
+          return {
+            done: new Promise((resolve) => {
+              child.on('exit', (code, signal) => {
+                const status = code === 0 ? 'completed' : (RUN.status === 'stopping' || signal ? 'killed' : 'failed')
+                resolve({ status, detail: `exit ${code}${signal ? ` ${signal}` : ''}` })
+              })
+              child.on('error', (error) => resolve({ status: 'failed', detail: String(error?.message || error) }))
+            }),
+            cancel() {
+              try { process.kill(-child.pid, 'SIGTERM') } catch { /* already gone */ }
+            },
+          }
+        },
+      })
+      persistRun()
+    } catch (error) {
+      console.warn('[ffs-analysis] ctx.jobs unavailable, running as a plain child:', error?.message || error)
+      ACTIVE_JOB = null
+    }
+  }
   // Record exact stage wall times from the stream: a banner closes the previous stage.
   const stageTimes = {}
   let stageText = ''
@@ -1064,6 +1096,7 @@ function startRun() {
     currentStage = name
     stageStartedAt = at
     RUN.stageTimes = stageTimes
+    try { ACTIVE_JOB?.updateProgress(currentStage || 'running') } catch { /* optional */ }
   }
   const scan = (chunk) => {
     stageText += String(chunk)
@@ -1078,6 +1111,7 @@ function startRun() {
   }
   const write = (chunk) => {
     try { out.write(chunk) } catch { /* log stream gone */ }
+    try { ACTIVE_JOB?.append(String(chunk)) } catch { /* job ring gone */ }
     scan(chunk)
   }
   const finishStage = () => {
@@ -3521,5 +3555,20 @@ export function apply(ctx) {
     } catch (error) {
       console.error('[ffs-analysis] route registration failed:', error)
     }
+  })
+
+  ctx.inject(['jobs'], (jobsCtx) => {
+    try {
+      JOB_SERVICE = jobsCtx.jobs
+      JOBS_CONTROLLER = jobsCtx.jobs.attachController('ffs-analysis')
+    } catch (error) {
+      console.warn('[ffs-analysis] jobs service not attached:', error?.message || error)
+    }
+    jobsCtx.effect(() => () => {
+      try { JOBS_CONTROLLER?.() } catch { /* already disposed */ }
+      JOBS_CONTROLLER = null
+      JOB_SERVICE = null
+      ACTIVE_JOB = null
+    }, 'ffs-analysis: jobs lifecycle')
   })
 }

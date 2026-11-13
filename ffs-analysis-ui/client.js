@@ -450,6 +450,7 @@ window.__ModuleLoader__.load({
             h(StatusPill, { status: pipeline.status }),
             h('span', { className: 'ffa-muted ffa-small' }, `${t('elapsed')} ${formatSeconds(pipeline.elapsedSeconds)}`),
             h('span', { className: 'ffa-muted ffa-small' }, `${stages.length} ${t('stages')}`),
+            snap.job?.dshId ? h('span', { className: 'ffa-tag', title: 'DSH background job' }, snap.job.dshId) : null,
             h('span', { className: 'ffa-spacer' }),
             h('button', {
               className: 'ffa-btn',
