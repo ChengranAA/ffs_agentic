@@ -100,6 +100,10 @@ window.__ModuleLoader__.load({
       validating: 'Validating…',
       cohortOk: 'Cohort valid',
       cohortFailed: 'Cohort invalid',
+      replay: 'Replay',
+      replaying: 'Replaying…',
+      replayMatch: 'Replay matches',
+      replayMismatch: 'Replay differs',
       exportFailed: 'Export failed',
       sourceLive: 'live',
       sourceFixture: 'fixture',
@@ -764,7 +768,7 @@ window.__ModuleLoader__.load({
           : h('div', { className: 'ffa-empty' }, 'No group analyses yet.'))
     }
 
-    function ProvenanceSection({ snap, t, onSettle, onExport, busyAction, onCopy }) {
+    function ProvenanceSection({ snap, t, onSettle, onExport, onReplay, busyAction, replaying, replayResult, onCopy }) {
       const provenance = snap.provenance || {}
       const completed = snap.pipeline?.status === 'completed'
       return h(Card, { title: t('provenance') },
@@ -795,7 +799,19 @@ window.__ModuleLoader__.load({
             disabled: !provenance.settled || busyAction === 'export',
             title: 'Build the reproducible package (scripts, STEPS.md, METHODS.md)',
           }, busyAction === 'export' ? t('exporting') : t('export')),
+          h('button', {
+            className: 'ffa-btn',
+            onClick: onReplay,
+            disabled: !completed || replaying,
+            title: 'Replay the frozen pipeline in a fresh work dir and compare the stats bucket',
+          }, replaying ? t('replaying') : t('replay')),
           h('span', { className: 'ffa-small ffa-muted' }, provenance.settledNote || '')),
+        replayResult
+          ? h('div', { className: 'ffa-small', style: { marginTop: 4 } },
+            `${replayResult.match ? t('replayMatch') : t('replayMismatch')} · exact=${replayResult.exact ? 'yes' : 'no'} · ` +
+            `${replayResult.comparison && replayResult.comparison.maxAbsDiff != null ? `max Δ=${Number(replayResult.comparison.maxAbsDiff).toExponential(2)}` : ''} · ` +
+            `${replayResult.dest || ''}`)
+          : null,
         provenance.settledAt
           ? h('div', { className: 'ffa-small ffa-muted' }, `settled ${provenance.settledAt}`)
           : null)
@@ -811,6 +827,8 @@ window.__ModuleLoader__.load({
       const [busyAction, setBusyAction] = useState(null)
       const [busyGroup, setBusyGroup] = useState(false)
       const [busyCohort, setBusyCohort] = useState(false)
+      const [replaying, setReplaying] = useState(false)
+      const [replayResult, setReplayResult] = useState(null)
       const [cohortValidation, setCohortValidation] = useState(null)
       const [toast, setToast] = useState(null)
 
@@ -939,6 +957,25 @@ window.__ModuleLoader__.load({
           setBusyAction(null)
         }
       }, [refresh, t])
+
+      const replayPipeline = useCallback(async () => {
+        setReplaying(true)
+        try {
+          const res = await fetch('/ffs-analysis/replay', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({}),
+          })
+          const payload = await res.json().catch(() => null)
+          if (!res.ok || !payload) throw new Error(payload?.error?.message || `replay failed (${res.status})`)
+          setReplayResult(payload)
+          setToast(payload.match ? t('replayMatch') : t('replayMismatch'))
+        } catch (e) {
+          setToast(`${t('replayMismatch')}: ${e && e.message || e}`)
+        } finally {
+          setReplaying(false)
+        }
+      }, [t])
 
       const validateCohortUi = useCallback(async () => {
         setBusyCohort(true)
@@ -1114,7 +1151,7 @@ window.__ModuleLoader__.load({
       else if (section === 'results') content = h(ResultsSection, { snap, t, onInspect: inspectResults })
       else if (section === 'cohort') content = h(CohortSection, { snap, t, onValidate: validateCohortUi, validating: busyCohort, validation: cohortValidation })
       else if (section === 'group') content = h(GroupSection, { snap, t, onRunGroup: runGroup, runningGroup: busyGroup, onInspectGroup: inspectGroup })
-      else content = h(ProvenanceSection, { snap, t, onSettle: settleAnalysis, onExport: exportAnalysis, busyAction, onCopy: copyPath })
+      else content = h(ProvenanceSection, { snap, t, onSettle: settleAnalysis, onExport: exportAnalysis, onReplay: replayPipeline, busyAction, replaying, replayResult, onCopy: copyPath })
 
       return h('div', { className: 'ffa-root' },
         h('header', { className: 'ffa-head' },

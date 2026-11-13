@@ -56,7 +56,7 @@ class TestBidsFixture(unittest.TestCase):
             self.assertEqual(description["BIDSVersion"], "1.8.0")
             self.assertTrue((root / "participants.tsv").exists())
             subjects = sorted(path.name for path in root.glob("sub-*"))
-            self.assertEqual(subjects, ["sub-001", "sub-002", "sub-003"])
+            self.assertEqual(subjects, ["sub-001", "sub-002", "sub-003", "sub-004"])
 
             def runs(subject: str) -> list[Path]:
                 return sorted((root / subject / "ses-01" / "func").glob("*_bold.nii.gz"))

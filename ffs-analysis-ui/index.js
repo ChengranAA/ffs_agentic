@@ -1199,6 +1199,12 @@ Generated from the settled analysis (${settled.id}, ${settled.at}). Facts come f
 frozen script, its log, the design spec and the GLM bucket; edit this file after export if a
 journal requires a different voice.
 
+## Subjects
+
+One subject (sub-${project.subject}, session ses-${project.session}) was analysed for task
+${project.task}; the frozen script lists its runs. This is a single-subject analysis; the
+cohort package adds the multi-subject methods section.
+
 ## Data
 
 Functional MRI data were taken from the BIDS dataset ds005165 (BOLD Moments), subject
@@ -1273,7 +1279,7 @@ function renderSteps(settled) {
   return lines.join('\n')
 }
 
-function renderManifest(settled) {
+function renderManifest(settled, extras = {}) {
   return JSON.stringify({
     schema: 'ffs-analysis-package/1',
     settledAt: settled.at,
@@ -1282,7 +1288,66 @@ function renderManifest(settled) {
     software: settled.software,
     results: settled.results,
     artifacts: settled.artifacts,
+    ...extras,
   }, null, 2)
+}
+
+function buildLock() {
+  const lock = {
+    schema: 'ffs-lock/1',
+    createdAt: new Date().toISOString(),
+    host: { platform: process.platform, arch: process.arch, node: process.version },
+    python: { path: pythonPath(), version: null, packages: {} },
+    tools: {},
+  }
+  try {
+    const info = JSON.parse(execFileSync(pythonPath(), ['-c',
+      'import json,platform,numpy,nibabel,scipy,torch;print(json.dumps({"version":platform.python_version(),"packages":{"numpy":numpy.__version__,"nibabel":nibabel.__version__,"scipy":scipy.__version__,"torch":torch.__version__}}))',
+    ], { env: ffsEnv(), encoding: 'utf8', timeout: 120000 }))
+    lock.python.version = info.version
+    lock.python.packages = info.packages
+  } catch { /* leave null */ }
+  for (const tool of ['zstd', '3dMEMA', '3dresample', '3dAutomask', 'Rscript']) {
+    const executable = resolveToolExecutable(tool)
+    const entry = { path: executable, version: null, ok: Boolean(executable) }
+    try {
+      if (tool === 'zstd' && executable) entry.version = execFileSync(executable, ['--version'], { encoding: 'utf8' }).trim()
+      if (tool === 'Rscript' && executable) entry.version = execFileSync(executable, ['--version'], { encoding: 'utf8' }).trim().split('\n')[0]
+    } catch { /* version optional */ }
+    lock.tools[tool] = entry
+  }
+  return lock
+}
+
+function writePortableLock(dir) {
+  const lock = buildLock()
+  writeFileSync(path.join(dir, 'lock.json'), `${JSON.stringify(lock, null, 2)}\n`)
+  writeFileSync(path.join(dir, 'setup.sh'), `#!/usr/bin/env bash
+set -euo pipefail
+here="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+source "$here/env.sh"
+echo "== setup: checking the recorded lock =="
+"$FFS_PYTHON" - "$here/lock.json" <<'PY'
+import json
+import shutil
+import sys
+lock = json.load(open(sys.argv[1], encoding="utf-8"))
+print("lock:", lock["schema"], "created", lock["createdAt"])
+print("python:", lock["python"].get("version"), "packages:", lock["python"].get("packages"))
+missing = []
+for name, info in lock["tools"].items():
+    path = info.get("path")
+    if not (shutil.which(name) or (path and __import__("os").path.exists(path))):
+        missing.append(name)
+if missing:
+    print("missing tools:", ", ".join(missing))
+    sys.exit(1)
+print("tools: ok")
+PY
+echo "setup: ok"
+`)
+  try { chmodSync(path.join(dir, 'setup.sh'), 0o755) } catch { /* best effort */ }
+  return lock
 }
 
 function exportPackage() {
@@ -1341,7 +1406,10 @@ edit \`env.sh\` to reproduce elsewhere. Group level, multiple-comparison correct
 surface outputs are not part of this export.
 `)
   writeFileSync(path.join(dir, 'STEPS.md'), renderSteps(settled))
-  writeFileSync(path.join(dir, 'METHODS.md'), renderMethods(settled))
+  const methodsText = renderMethods(settled)
+  writeFileSync(path.join(dir, 'METHODS.md'), methodsText)
+  const methodsLint = lintMethods(methodsText, ['Methods', 'Subjects'])
+  if (!methodsLint.ok) throw Object.assign(new Error(`methods lint failed: ${methodsLint.issues.join('; ')}`), { code: 'methods-lint' })
   writeFileSync(path.join(dir, 'methods.yaml'), `# Structured facts behind METHODS.md
 dataset:
   source: BIDS ds005165 (BOLD Moments)
@@ -1404,10 +1472,14 @@ command -v zstd >/dev/null || echo "warning: zstd not found"
 test -f "$here/frozen/${path.basename(scriptSrc)}" || { echo "missing frozen script"; exit 1; }
 echo "doctor: ok"
 `)
-  for (const file of ['env.sh', 'run.sh', 'doctor.sh']) {
+  for (const file of ['env.sh', 'run.sh', 'doctor.sh', 'setup.sh']) {
     try { execFileSync('chmod', ['+x', path.join(dir, file)]) } catch { /* best effort */ }
   }
-  writeFileSync(path.join(dir, 'manifest.json'), renderManifest(settled))
+  writePortableLock(dir)
+  writeFileSync(path.join(dir, 'manifest.json'), renderManifest(settled, {
+    lock: { path: 'lock.json', sha256: sha256File(path.join(dir, 'lock.json')) },
+    methodsLint,
+  }))
 
   const checksumLines = []
   const walk = (folder) => {
@@ -1593,6 +1665,16 @@ const DEFAULT_COHORT_ROOT = path.join(PROJECT_ROOT, 'work', 'ds005165')
 const GROUP_STATE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-analysis-group.json')
 
 /** The cohort lives beside the current subject's work dir: work/<dataset>/<subject>. */
+function currentProjectWorkDir() {
+  const state = readProjectState()
+  if (!state || !state.workDir) return null
+  try {
+    return resolveInside(state.workDir, 'workDir')
+  } catch {
+    return null
+  }
+}
+
 function cohortRootForState(state) {
   if (!state || !state.workDir) return DEFAULT_COHORT_ROOT
   try {
@@ -2068,6 +2150,17 @@ function exportCohortPackage(params = {}) {
   }, null, 2)}\n`)
   writeFileSync(path.join(dir, 'run.sh'), cohortRunScript(cohort.subjects.map((subject) => subject.id)))
   writeFileSync(path.join(dir, 'validate.py'), cohortValidateScript())
+  writeFileSync(path.join(dir, 'env.sh'), `#!/usr/bin/env bash
+# Environment recorded at export time (absolute paths).
+export FFS_PYTHON="\${FFS_PYTHON:-${pythonPath()}}"
+export PYTHONPATH="${PROJECT_ROOT}/python:${PROJECT_ROOT}/reference/fastfuncstuff\${PYTHONPATH:+:$PYTHONPATH}"
+export PATH="${PROJECT_ROOT}/work/bin:\$PATH"
+export MPLCONFIGDIR="\${MPLCONFIGDIR:-${PROJECT_ROOT}/work/.mpl}"
+`)
+  writePortableLock(dir)
+  for (const file of ['env.sh', 'setup.sh']) {
+    try { chmodSync(path.join(dir, file), 0o755) } catch { /* best effort */ }
+  }
   try { chmodSync(path.join(dir, 'run.sh'), 0o755) } catch { /* best effort */ }
   writeFileSync(path.join(dir, 'STEPS.md'), `# Cohort rerun\n\n${cohort.included} subjects, ${validation.ok ? 'validated' : 'FAILED'}.\n\n\`\`\`bash\nMAX_PARALLEL=2 ./run.sh\npython3 validate.py\n\`\`\`\n\nEach subject directory holds its frozen autoproc script, design spec, stimuli and\n\`subject.yaml\`; non-canonical variants live under \`subjects/<id>/variants/\`.\n`)
   const groupAnalyses = readGroupState().analyses
@@ -2150,6 +2243,7 @@ function exportCohortPackage(params = {}) {
     subjects: cohort.subjects.map((subject) => subject.id),
     validation,
     methodsLint: { cohort: cohortLint, group: groupLint },
+    lock: { path: 'lock.json', sha256: sha256File(path.join(dir, 'lock.json')) },
     groupAnalyses: groupAnalyses.map((analysis) => analysis.id),
     files,
   }, null, 2)}\n`)
@@ -2343,6 +2437,198 @@ function runGroupAnalysis(params = {}) {
   return groupSummaryRecord(record)
 }
 
+// ------------------------------------------------------------------ M6: tool runner / replay
+const TOOL_RUNS_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-tool-runs.json')
+const REPLAYS_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-replays.json')
+const TOOL_RUN_WHITELIST = /^(ffs_[a-z0-9_]+|3d[A-Za-z0-9_]+|python3?|Rscript|zstd)$/
+
+function readProvenanceList(file) {
+  try {
+    if (!existsSync(file)) return []
+    const value = JSON.parse(readFileSync(file, 'utf8'))
+    return Array.isArray(value) ? value : []
+  } catch {
+    return []
+  }
+}
+
+function appendProvenance(file, record) {
+  const entries = readProvenanceList(file).slice(-199)
+  entries.push(record)
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, `${JSON.stringify(entries, null, 2)}\n`)
+}
+
+function resolveToolExecutable(name) {
+  if (name === 'python' || name === 'python3') return pythonPath()
+  if (name.startsWith('ffs_')) {
+    const shim = path.join(PROJECT_ROOT, 'work', 'bin', name)
+    return existsSync(shim) ? shim : null
+  }
+  const envPath = ffsEnv().PATH || ''
+  for (const dir of envPath.split(path.delimiter)) {
+    if (!dir) continue
+    const candidate = path.join(dir, name)
+    if (existsSync(candidate)) return candidate
+  }
+  return null
+}
+
+function artifactHashes(paths) {
+  if (!paths.length) return []
+  try {
+    const output = execFileSync(pythonPath(), [
+      path.join(PKG_DIR, 'scripts', 'artifact_hash.py'),
+      ...paths,
+    ], { env: ffsEnv(), encoding: 'utf8', timeout: 300000 })
+    return JSON.parse(output)
+  } catch (error) {
+    return paths.map((item) => ({ path: item, ok: false, error: String(error && error.message) }))
+  }
+}
+
+function compareArtifacts(a, b, atol = 1e-2, rtol = 1e-2) {
+  try {
+    const output = execFileSync(pythonPath(), [
+      path.join(PKG_DIR, 'scripts', 'artifact_compare.py'), a, b,
+      '--atol', String(atol), '--rtol', String(rtol),
+    ], { env: ffsEnv(), encoding: 'utf8', timeout: 300000 })
+    return JSON.parse(output)
+  } catch (error) {
+    return { ok: false, error: String(error && error.message) }
+  }
+}
+
+function ffsToolRun(params = {}) {
+  const argv = Array.isArray(params.argv) ? params.argv.map((item) => String(item)) : []
+  if (!argv.length) throw Object.assign(new Error('argv is required'), { code: 'tool-invalid' })
+  if (!TOOL_RUN_WHITELIST.test(path.basename(argv[0]))) {
+    throw Object.assign(new Error(`tool not allowed: ${argv[0]}`), { code: 'tool-not-allowed' })
+  }
+  const executable = resolveToolExecutable(path.basename(argv[0]))
+  if (!executable) throw Object.assign(new Error(`tool not found: ${argv[0]}`), { code: 'tool-missing' })
+  const cwd = params.cwd ? resolveInside(params.cwd, 'cwd') : (currentProjectWorkDir() || PROJECT_ROOT)
+  const customEnv = {}
+  if (params.env && typeof params.env === 'object') {
+    for (const [key, value] of Object.entries(params.env)) {
+      if (!/^[A-Z][A-Z0-9_]*$/.test(key)) throw Object.assign(new Error(`env key not allowed: ${key}`), { code: 'tool-invalid' })
+      customEnv[key] = String(value)
+    }
+  }
+  const expect = Array.isArray(params.expect) ? params.expect.map((item) => String(item.path || item)) : []
+  const timeout = Math.max(1000, Math.min(Number(params.timeoutMs) || 300000, 900000))
+  const started = Date.now()
+  let stdout = ''
+  let stderr = ''
+  let exitCode = 0
+  try {
+    stdout = execFileSync(executable, argv.slice(1), {
+      cwd, env: { ...ffsEnv(), ...customEnv }, timeout, encoding: 'utf8', stdio: 'pipe',
+    })
+  } catch (error) {
+    exitCode = typeof error.status === 'number' ? error.status : 1
+    stdout = error.stdout ? String(error.stdout) : ''
+    stderr = error.stderr ? String(error.stderr) : String(error.message || error)
+  }
+  const outputPaths = expect.map((item) => (path.isAbsolute(item) ? item : path.resolve(cwd, item)))
+  const missing = outputPaths.filter((item) => !existsSync(item))
+  const hashes = artifactHashes(outputPaths)
+  const record = {
+    id: `tool-${Date.now().toString(36)}`,
+    at: new Date().toISOString(),
+    argv,
+    executable,
+    cwd: path.relative(PROJECT_ROOT, cwd),
+    env: customEnv,
+    timeoutMs: timeout,
+    exitCode,
+    durationMs: Date.now() - started,
+    outputs: hashes,
+    missing,
+    ok: exitCode === 0 && missing.length === 0,
+  }
+  appendProvenance(TOOL_RUNS_FILE, record)
+  return {
+    ...record,
+    stdout: cleanLogText(stdout).split('\n').slice(-40).join('\n'),
+    stderr: cleanLogText(stderr).split('\n').slice(-20).join('\n'),
+  }
+}
+
+function ffsReplay(params = {}) {
+  const settled = readSettled()
+  const state = readProjectState()
+  const sourceWork = params.workDir
+    ? resolveInside(params.workDir, 'workDir')
+    : resolveInside((settled && settled.project && settled.project.workDir) || (state && state.workDir) || '', 'workDir')
+  if (!existsSync(sourceWork)) throw Object.assign(new Error('no work dir to replay'), { code: 'not-planned' })
+  let scriptAbs
+  if (params.script) {
+    scriptAbs = resolveInside(params.script, 'script')
+  } else {
+    const localScript = readdirSync(sourceWork).find((name) => /^proc_sub-.*\.sh$/.test(name))
+    if (localScript) {
+      scriptAbs = path.join(sourceWork, localScript)
+    } else {
+      const fromSettled = settled && settled.project && settled.project.script
+      const fromState = state && state.script
+      scriptAbs = resolveInside(fromSettled || fromState || '', 'script')
+    }
+  }
+  if (!existsSync(scriptAbs)) throw Object.assign(new Error('frozen script missing'), { code: 'replay-no-script' })
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-')
+  const dest = path.join(PROJECT_ROOT, 'work', `replay-${stamp}`)
+  mkdirSync(dest, { recursive: true })
+  const scriptName = path.basename(scriptAbs)
+  const text = readFileSync(scriptAbs, 'utf8').replace(/^OUT=.*$/m, 'OUT="$(cd "$(dirname "$0")" && pwd)"')
+  writeFileSync(path.join(dest, scriptName), text)
+  for (const name of readdirSync(sourceWork).filter((item) => /^stage11\.design\..*\.toml$/.test(item))) {
+    copyFileSync(path.join(sourceWork, name), path.join(dest, name))
+  }
+  if (existsSync(path.join(sourceWork, 'stimuli'))) copyTree(path.join(sourceWork, 'stimuli'), path.join(dest, 'stimuli'))
+  const statsName = params.artifact && !params.artifact.includes('/')
+    ? params.artifact
+    : readdirSync(sourceWork).find((name) => /^stage12\.stats-reml\..*\.nii\.gz$/.test(name) && !/ffsremlvar/.test(name))
+  if (!statsName) throw Object.assign(new Error('no stats artifact to compare'), { code: 'replay-no-artifact' })
+  const started = Date.now()
+  let log = ''
+  let exitCode = 0
+  try {
+    execFileSync('bash', [path.join(dest, scriptName)], {
+      cwd: dest, env: ffsEnv(), timeout: 900000, encoding: 'utf8', stdio: 'pipe',
+    })
+  } catch (error) {
+    exitCode = typeof error.status === 'number' ? error.status : 1
+    log = `${error.stdout || ''}${error.stderr || ''}${error.message || ''}`
+  }
+  writeFileSync(path.join(dest, 'replay.log'), cleanLogText(log).split('\n').slice(-80).join('\n') + '\n')
+  const replayArtifact = path.join(dest, statsName)
+  const [original, replay] = artifactHashes([path.join(sourceWork, statsName), replayArtifact])
+  const comparison = compareArtifacts(path.join(sourceWork, statsName), replayArtifact)
+  const exact = Boolean(comparison.ok && comparison.exact)
+  const toleranceMatch = Boolean(comparison.ok && comparison.toleranceMatch)
+  const match = Boolean(exact || toleranceMatch)
+  const record = {
+    id: `replay-${stamp}`,
+    at: new Date().toISOString(),
+    sourceWork: path.relative(PROJECT_ROOT, sourceWork),
+    dest: path.relative(PROJECT_ROOT, dest),
+    script: path.relative(PROJECT_ROOT, scriptAbs),
+    artifact: path.relative(PROJECT_ROOT, path.join(sourceWork, statsName)),
+    exitCode,
+    durationMs: Date.now() - started,
+    match,
+    exact,
+    toleranceMatch,
+    comparison,
+    original,
+    replay,
+    logTail: cleanLogText(log).split('\n').filter(Boolean).slice(-8),
+  }
+  appendProvenance(REPLAYS_FILE, record)
+  return { ok: exitCode === 0 && match, exitCode, match, exact, toleranceMatch, ...record }
+}
+
 // ------------------------------------------------------------------ transport
 function writeJson(res, status, value) {
   const body = JSON.stringify(value)
@@ -2531,6 +2817,62 @@ export function apply(ctx) {
       return JSON.stringify({ ok: true, bids, doctor }, null, 1)
     },
   }), 'ffs-analysis: scan tool')
+
+  ctx.effect(() => ctx.tools.register({
+    name: 'ffs_tool_run',
+    description: [
+      'Run one validated FFS/AFNI command as an argv array (never a shell line), inside the',
+      'workspace, with recorded provenance and hashes of expected outputs. Allowed tools:',
+      'ffs_*, 3d*, python, Rscript, zstd. Use as the escape hatch for bespoke CLI steps.',
+    ].join('\n'),
+    parameters: {
+      type: 'object',
+      properties: {
+        argv: { type: 'array', items: { type: 'string' }, description: 'Executable and arguments, no shell.' },
+        cwd: { type: 'string', description: 'Working directory, project-relative (default: current work dir).' },
+        env: { type: 'object', description: 'Extra uppercase environment variables.' },
+        timeoutMs: { type: 'number', description: 'Timeout in ms (1s–15min, default 5min).' },
+        expect: {
+          type: 'array',
+          description: 'Outputs that must exist after the call; hashed into provenance.',
+          items: {
+            type: 'object',
+            properties: { path: { type: 'string' }, kind: { type: 'string' } },
+            required: ['path'],
+          },
+        },
+      },
+      required: ['argv'],
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    },
+    async execute(args) { return JSON.stringify(ffsToolRun(args || {}), null, 1) },
+  }), 'ffs-analysis: tool runner')
+
+  ctx.effect(() => ctx.tools.register({
+    name: 'ffs_replay',
+    description: [
+      'Replay a frozen analysis pipeline in a fresh work dir and compare one artifact by',
+      'canonical hash (NIfTI: shape+affine+voxel data). Returns match, hashes and the log tail.',
+    ].join('\n'),
+    parameters: {
+      type: 'object',
+      properties: {
+        workDir: { type: 'string', description: 'Source work dir (default: settled/current analysis).' },
+        script: { type: 'string', description: 'Frozen script (default: the settled/current script).' },
+        artifact: { type: 'string', description: 'Artifact to compare (basename; default: stage12 stats bucket).' },
+        timeoutMs: { type: 'number', description: 'Timeout in ms (default 15min).' },
+      },
+      required: [],
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    },
+    async execute(args) { return JSON.stringify(ffsReplay(args || {}), null, 1) },
+  }), 'ffs-analysis: replay tool')
 
   const groupParameters = {
     type: 'object',
@@ -2722,6 +3064,26 @@ export function apply(ctx) {
             cohort: discoverCohort(workRoot),
             validation: validateCohort(workRoot),
           })
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'tool-run') {
+        try {
+          const body = req.method === 'POST' ? await readJsonBody(req) : {}
+          writeJson(res, 200, { ok: true, ...ffsToolRun(body) })
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'replay') {
+        try {
+          const body = req.method === 'POST' ? await readJsonBody(req) : {}
+          writeJson(res, 200, { ok: true, ...ffsReplay(body) })
         } catch (error) {
           routeError(res, error)
         }
