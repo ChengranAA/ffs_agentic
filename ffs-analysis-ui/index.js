@@ -1425,6 +1425,8 @@ function buildLock() {
     createdAt: new Date().toISOString(),
     host: { platform: process.platform, arch: process.arch, node: process.version },
     python: { path: pythonPath(), version: null, packages: {} },
+    fastfuncstuff: { version: packageVersion(), commit: gitShort(path.join(PROJECT_ROOT, 'reference', 'fastfuncstuff')) },
+    install: { script: 'setup.sh --install', venv: '.venv', source: 'code/fastfuncstuff' },
     tools: {},
   }
   try {
@@ -1449,13 +1451,41 @@ function buildLock() {
 function writePortableLock(dir) {
   const lock = buildLock()
   writeFileSync(path.join(dir, 'lock.json'), `${JSON.stringify(lock, null, 2)}\n`)
+  const pkg = lock.python.packages || {}
   writeFileSync(path.join(dir, 'setup.sh'), `#!/usr/bin/env bash
+# Verify the lock. --install creates a package-local .venv from the lock and the
+# vendored fastfuncstuff source; --reuse-python (offline rehearsal) reuses the
+# interpreter's site packages instead of downloading pinned wheels.
 set -euo pipefail
 here="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+install=0
+reuse=0
+for arg in "$@"; do
+  case "$arg" in
+    --install) install=1 ;;
+    --reuse-python) reuse=1 ;;
+    *) echo "unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
+if [ "$install" = "1" ]; then
+  if [ ! -d "$here/code/fastfuncstuff" ]; then echo "vendored FFS source missing (code/fastfuncstuff)" >&2; exit 1; fi
+  if [ "$reuse" = "1" ]; then
+    python3 -m venv --system-site-packages "$here/.venv"
+  else
+    python3 -m venv "$here/.venv"
+  fi
+  "$here/.venv/bin/python" -m pip install --upgrade pip setuptools wheel
+  if [ "$reuse" = "0" ]; then
+    "$here/.venv/bin/pip" install "numpy==${pkg.numpy || 'numpy'}" "nibabel==${pkg.nibabel || 'nibabel'}" "scipy==${pkg.scipy || 'scipy'}" "torch==${pkg.torch || 'torch'}"
+  fi
+  "$here/.venv/bin/pip" install --no-deps --no-build-isolation "$here/code/fastfuncstuff"
+  echo "installed package-local .venv"
+fi
 source "$here/env.sh"
 echo "== setup: checking the recorded lock =="
-"$FFS_PYTHON" - "$here/lock.json" <<'PY'
+"$FFS_PYTHON" - "$here/lock.json" <<'PYCHECK'
 import json
+import os
 import shutil
 import sys
 lock = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -1464,14 +1494,15 @@ print("python:", lock["python"].get("version"), "packages:", lock["python"].get(
 missing = []
 for name, info in lock["tools"].items():
     path = info.get("path")
-    if not (shutil.which(name) or (path and __import__("os").path.exists(path))):
+    if not (shutil.which(name) or (path and os.path.exists(path))):
         missing.append(name)
 if missing:
     print("missing tools:", ", ".join(missing))
+    print("hint: AFNI/R/zstd are system tools (brew install afni r zstd)")
     sys.exit(1)
 print("tools: ok")
-PY
-echo "setup: ok"
+PYCHECK
+echo "setup: ok (run 'bash setup.sh --install' for a package-local venv)"
 `)
   try { chmodSync(path.join(dir, 'setup.sh'), 0o755) } catch { /* best effort */ }
   return lock
@@ -1545,6 +1576,16 @@ function exportPackage() {
       copyFileSync(path.join(viewerState, 'workspace.json'), path.join(viewerDir, 'workspace.json'))
     }
     viewerIncluded = { script: 'viewer/viewer.ffs', workspace: 'viewer/workspace.json' }
+  }
+
+  const ffsCode = path.join(PROJECT_ROOT, 'reference', 'fastfuncstuff')
+  if (existsSync(path.join(ffsCode, 'fastfuncstuff'))) {
+    const codeDir = path.join(dir, 'code', 'fastfuncstuff')
+    mkdirSync(codeDir, { recursive: true })
+    copyTree(path.join(ffsCode, 'fastfuncstuff'), path.join(codeDir, 'fastfuncstuff'))
+    for (const name of ['pyproject.toml', 'LICENSE', 'README.md']) {
+      if (existsSync(path.join(ffsCode, name))) copyFileSync(path.join(ffsCode, name), path.join(codeDir, name))
+    }
   }
 
   const results = ensureResults(workAbs, statsArtifact ? resolveInside(statsArtifact.path, 'stats') : '', {
@@ -1636,11 +1677,22 @@ thresholding) your manuscript requires; this file intentionally contains no inve
 references.
 `)
   writeFileSync(path.join(dir, 'env.sh'), `#!/usr/bin/env bash
-# Environment recorded at export time (absolute paths).
-export FFS_PYTHON="\${FFS_PYTHON:-${pythonPath()}}"
-export PYTHONPATH="${PROJECT_ROOT}/python:${PROJECT_ROOT}/reference/fastfuncstuff\${PYTHONPATH:+:$PYTHONPATH}"
-export PATH="${PROJECT_ROOT}/work/bin:\$PATH"
-export MPLCONFIGDIR="\${MPLCONFIGDIR:-${PROJECT_ROOT}/work/.mpl}"
+# Prefer the package-local environment (created by setup.sh --install); fall back to
+# the checkout that produced the package for a same-machine rerun.
+here="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+if [ -x "$here/.venv/bin/python" ]; then
+  export FFS_PYTHON="$here/.venv/bin/python"
+  export PATH="$here/.venv/bin:\$PATH"
+else
+  export FFS_PYTHON="\${FFS_PYTHON:-${pythonPath()}}"
+  if [ -d "${PROJECT_ROOT}/work/bin" ]; then
+    export PATH="${PROJECT_ROOT}/work/bin:\$PATH"
+  fi
+fi
+if [ -d "${PROJECT_ROOT}/reference/fastfuncstuff" ]; then
+  export PYTHONPATH="${PROJECT_ROOT}/python:${PROJECT_ROOT}/reference/fastfuncstuff\${PYTHONPATH:+:$PYTHONPATH}"
+fi
+export MPLCONFIGDIR="\${MPLCONFIGDIR:-$here/.mpl}"
 `)
   writeFileSync(path.join(dir, 'run.sh'), `#!/usr/bin/env bash
 set -euo pipefail
@@ -1691,6 +1743,7 @@ fi
     surface: surfaceNames.length ? { files: surfaceNames, labels: surfaceLabels } : null,
     viewer: viewerIncluded,
     verify: { script: 'verify.sh', frozenStats: statsAbs ? path.basename(statsAbs) : null, figures: existsSync(figuresDir) },
+    code: existsSync(path.join(dir, 'code', 'fastfuncstuff', 'pyproject.toml')),
   }))
 
   const checksumLines = []
