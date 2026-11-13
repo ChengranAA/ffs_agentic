@@ -9,9 +9,9 @@ or command that proves it. Update this file whenever a milestone moves.
 |---|---|---|
 | **M0 — Seed** | **done** | `scripts/build_bids_fixture.py` builds a byte-identical 3-subject/5-run fixture (`data/bids-lite`); `ffs_project_scan` scans BIDS + doctor (python, fastfuncstuff/torch, 86 `ffs_*` shims, zstd, AFNI/R, MPLCONFIGDIR, disk); `python -m unittest discover -s tests -v` passes determinism/layout/autoproc tests |
 | **M1 — Plan** | **done** | `ffs_analysis_plan` writes `proc_sub-001.sh` + design specs for the fixture (2 runs); `scripts/check_stage_parity.py` proves planned stages equal emitted log banners (stage12 exempt: commented banner), order and finish included |
-| **M2 — Run + QC + viewer** | partial (acceptance behaviour met) | fixture pipeline completes in 91 s; stage progress/times visible; QC produced 17 figures + `qc_review.tsv` (7 rows × 38 cols) surfaced in the tab; viewer screenshot saved under `screenshots/`; run state self-heals from the log after a Host reload. Missing: `ctx.jobs` wrapper and resume UI |
-| **M3 — Analysis** | partial | stats buckets loaded with sub-brick/threshold/colormap via viewer hand-off; results inspector (peaks/clusters); settle/export package. Missing: threshold/correction controls, screenshots |
-| **M4 — Cohort** | **done (backend + package); UI partial** | fixture cohort of 3 subjects on one 42³ grid; `ffs_cohort` list/validate/export; `subjects/` + `cohort.yaml` + `subject.yaml` (canonical + hand-edited `sub-002-edited` variant); bounded-parallel `run.sh` reran all three and revalidated; negative cohort reports `grid-mismatch` and `missing-output` and export refuses. UI: matrix/variants/validate button; include/exclude + subject detail still open (U4) |
+| **M2 — Run + QC + viewer** | partial (acceptance behaviour met) | fixture pipeline completes in 91 s; stage progress/times visible; QC figures + `qc_review.tsv` surfaced; screenshots; run state self-heals after Host reload. **Resume** label + `ffs_analysis_resume` tool rerun the frozen script with existing outputs skipped. Missing: `ctx.jobs` wrapper (runs are a plain managed child) |
+| **M3 — Analysis** | **done** | stats buckets with sub-brick/colormap viewer hand-off; results inspector (peaks/clusters) with persisted **threshold + min-cluster controls** (`ffs_analysis_results`); settle/export package; surface GLM separately in M6. Single-subject multiple-comparison correction is not part of M3 |
+| **M4 — Cohort** | **done (backend + package); UI partial** | fixture cohort of 4 subjects on one 42³ grid; `ffs_cohort` list/validate/export; `subjects/` + `cohort.yaml` + `subject.yaml` (canonical + hand-edited `sub-002-edited` variant); bounded-parallel `run.sh` reran all three and revalidated; negative cohort reports `grid-mismatch` and `missing-output` and export refuses. UI: matrix/variants/validate button + include/exclude checkboxes (persisted); subject detail drawer still open (U4) |
 | **M5 — Group level** | **done (adapters + package)** | one-sample 3dMEMA and two-group 3dttest++ on the 4-subject fixture; common-grid resampling; permutation/max-cluster correction adapter (`scripts/group_permutation.py`) and cluster-size threshold; `group.yaml` + per-analysis bucket/correction/clusters + group METHODS in the cohort package; methods lint clean. Covariates and true 3dClustSim remain a follow-on |
 | **M6 — Surface + interop + replay** | **done except exact-hash replay** | surface GLM on **fsaverage** (demo phantom): stage10s sampling + stage12s ffs_reml lh/rh, figure `surface/screenshot.png`, viewer state; `ffs_tool_run` argv runner; `ffs_replay` (canonical hash + tolerance; exact false from REML numerical noise, 0 voxels over tolerance, corr 0.999999997); AFNI/ANTs interop plan inputs (`-ref_file`/`-ref_file_anat`/`-ref_transforms` verified in the script); portable lock/setup/env; deterministic zip; optional viewer state in the package. Caveat: replay is numerically equivalent, not byte/hash-equal |
 
@@ -22,8 +22,8 @@ or command that proves it. Update this file whenever a milestone moves.
 | **U0** shell + artifacts | done | right-sidebar tab, fixture fallback, artifact list |
 | **U1** plan/review | done | Plan produces `proc_sub-*.sh`, design spec and stage flow |
 | **U2** live run/log | done | progress, stage times, cleaned log, cancel, QC table/figures, viewer screenshots, load-to-viewer |
-| **U3** results/provenance | partial | contrast/cluster tables, viewer hand-off, settle/export, provenance, **Replay card** (exact/tolerance + max Δ); threshold/correction controls still missing |
-| **U4** cohort | partial | matrix, variant list and Validate button with per-subject issue codes; include/exclude and subject detail still missing |
+| **U3** results/provenance | partial | contrast/cluster tables, viewer hand-off, settle/export, provenance, Replay card, **threshold/min-cluster controls**; single-subject correction controls still missing |
+| **U4** cohort | partial | matrix, variant list, Validate button with issue codes, persisted include/exclude checkboxes; subject detail drawer still missing |
 | **U5** group | **done** | design form (one-sample/two-group), engine selector (3dMEMA/3dttest++, disabled with reason for two-group), correction selector, groups A/B inputs, cluster table with p, viewer sync |
 | **U6** tool cards/polish | not started | — |
 
@@ -48,6 +48,9 @@ or command that proves it. Update this file whenever a milestone moves.
 ffs_analysis_snapshot                                      # M2: qc figures/review/screenshots
 ffs_cohort validate                                        # M4: 3-subject fixture cohort
 ffs_cohort export                                          # M4: subjects/ + cohort.yaml + run.sh
+ffs_analysis_results threshold=2.5 minCluster=5           # M3: result controls
+ffs_cohort include workRoot=work/bids-lite subject=004 include=false
+ffs_analysis_resume                                        # M2: resume
 ffs_group model=two-group groups='{"a":["001","002"],"b":["003","004"]}' correction=permutation
                                                             # M5: engine + correction + package
 ffs_tool_run argv='["ffs_info","-nv",<bucket>]'             # M6: escape hatch + provenance

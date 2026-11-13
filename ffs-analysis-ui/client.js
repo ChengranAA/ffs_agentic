@@ -104,6 +104,8 @@ window.__ModuleLoader__.load({
       replaying: 'Replaying…',
       replayMatch: 'Replay matches',
       replayMismatch: 'Replay differs',
+      resume: 'Resume',
+      applyResults: 'Apply threshold',
       exportFailed: 'Export failed',
       sourceLive: 'live',
       sourceFixture: 'fixture',
@@ -458,12 +460,15 @@ window.__ModuleLoader__.load({
                 onClick: onCancel,
                 disabled: busyRun,
               }, busyRun ? '…' : t('cancel'))
-              : h('button', {
-                className: 'ffa-btn ffa-btn-primary',
-                onClick: onRun,
-                disabled: planning || busyRun,
-                title: 'Execute the generated script',
-              }, busyRun ? '…' : t('run'))),
+              : (() => {
+                const canResume = (pipeline.status === 'failed' || pipeline.status === 'stopped' || pipeline.status === 'cancelled') && Boolean(pipeline.script)
+                return h('button', {
+                  className: 'ffa-btn ffa-btn-primary',
+                  onClick: onRun,
+                  disabled: planning || busyRun,
+                  title: canResume ? 'Resume: stages with existing outputs are skipped' : 'Execute the generated script',
+                }, busyRun ? '…' : (canResume ? t('resume') : t('run')))
+              })()),
           pipeline.currentStage || pipeline.error
             ? h('div', { className: 'ffa-small ffa-muted', style: pipeline.error ? { color: 'var(--dsw-alias-state-error-primary)' } : null },
               pipeline.error || `${t('current')} · ${pipeline.currentStage}`)
@@ -577,8 +582,10 @@ window.__ModuleLoader__.load({
           : null)
     }
 
-    function ResultsSection({ snap, t, onInspect }) {
+    function ResultsSection({ snap, t, onInspect, onApplyResults, applyingResults }) {
       const results = snap.results || {}
+      const [threshold, setThreshold] = React.useState(results.threshold ?? 3.1)
+      const [minCluster, setMinCluster] = React.useState(results.minCluster ?? 10)
       const contrasts = Array.isArray(results.contrasts) ? results.contrasts : []
       const clusters = Array.isArray(results.clusters) ? results.clusters : []
       const preview = results.preview ? `${snap.assets?.base || '/ffs-analysis/asset/'}${results.preview}` : null
@@ -594,7 +601,17 @@ window.__ModuleLoader__.load({
             h('dt', null, 'model'), h('dd', null, results.model || '—'),
             h('dt', null, 'voxels'), h('dd', null, results.voxelsInMask ?? '—'),
             h('dt', null, 'sub-bricks'), h('dd', null, results.subBricks ?? '—'),
-            h('dt', null, 'threshold'), h('dd', null, results.threshold ?? '—'))),
+            h('dt', null, 'threshold'), h('dd', null, results.threshold ?? '—'),
+            h('dt', null, 'min cluster'), h('dd', null, results.minCluster ?? '—')),
+          h('div', { className: 'ffa-row', style: { marginTop: 6 } },
+            h('label', { className: 'ffa-small' }, 't ≥ ',
+              h('input', { className: 'ffa-input', type: 'number', min: 0.5, max: 20, step: 0.1, value: threshold,
+                onChange: (event) => setThreshold(Number(event.target.value)) })),
+            h('label', { className: 'ffa-small' }, 'min vox ',
+              h('input', { className: 'ffa-input', type: 'number', min: 1, max: 500, step: 1, value: minCluster,
+                onChange: (event) => setMinCluster(Number(event.target.value)) })),
+            h('button', { className: 'ffa-btn', onClick: () => onApplyResults({ threshold, minCluster }), disabled: applyingResults },
+              applyingResults ? '…' : t('applyResults')))),
         h('div', { className: 'ffa-split' },
           h(Card, { title: t('contrasts'), subtitle: `${contrasts.length}` },
             contrasts.length
@@ -631,7 +648,7 @@ window.__ModuleLoader__.load({
           : null)
     }
 
-    function CohortSection({ snap, t, onValidate, validating, validation }) {
+    function CohortSection({ snap, t, onValidate, validating, validation, onToggleInclude }) {
       const cohort = snap.cohort || snap.group?.cohort || {}
       const subjects = Array.isArray(cohort.subjects) ? cohort.subjects : []
       const checked = new Map((validation?.subjects || []).map((item) => [item.id, item]))
@@ -655,11 +672,15 @@ window.__ModuleLoader__.load({
         subjects.length
           ? h('table', { className: 'ffa-table', style: { marginTop: 8 } },
             h('thead', null, h('tr', null,
-              h('th', null, 'subject'), h('th', null, 'status'), h('th', null, 'variants'), h('th', null, 'work dir'))),
+              h('th', null, 'in'), h('th', null, 'subject'), h('th', null, 'status'), h('th', null, 'variants'), h('th', null, 'work dir'))),
             h('tbody', null, subjects.map((subject) => {
               const check = checked.get(subject.id)
               const issues = check?.issues || []
               return h('tr', { key: subject.id },
+                h('td', null, h('input', {
+                  type: 'checkbox', checked: subject.include !== false,
+                  onChange: (event) => onToggleInclude(subject.subject, event.target.checked),
+                })),
                 h('td', { className: 'ffa-name' }, subject.id),
                 h('td', null, h(StatusPill, { status: issues.length ? 'failed' : subject.status })),
                 h('td', { className: 'ffa-small' }, (subject.variants || []).map((variant) => variant.id).join(', ') || 'canonical'),
@@ -839,6 +860,7 @@ window.__ModuleLoader__.load({
       const [busyCohort, setBusyCohort] = useState(false)
       const [replaying, setReplaying] = useState(false)
       const [replayResult, setReplayResult] = useState(null)
+      const [applyingResults, setApplyingResults] = useState(false)
       const [cohortValidation, setCohortValidation] = useState(null)
       const [toast, setToast] = useState(null)
 
@@ -967,6 +989,39 @@ window.__ModuleLoader__.load({
           setBusyAction(null)
         }
       }, [refresh, t])
+
+      const applyResultsView = useCallback(async (options) => {
+        setApplyingResults(true)
+        try {
+          const res = await fetch('/ffs-analysis/results', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(options),
+          })
+          const payload = await res.json().catch(() => null)
+          if (!res.ok || !payload) throw new Error(payload?.error?.message || `results failed (${res.status})`)
+          setToast(`results: t ≥ ${payload.threshold} · min ${payload.minCluster} vox`)
+          await refresh()
+        } catch (e) {
+          setToast(`results failed: ${e && e.message || e}`)
+        } finally {
+          setApplyingResults(false)
+        }
+      }, [refresh])
+
+      const toggleCohortInclude = useCallback(async (subject, include) => {
+        try {
+          const res = await fetch('/ffs-analysis/cohort', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ action: 'include', subject, include }),
+          })
+          if (!res.ok) throw new Error(`include failed (${res.status})`)
+          await refresh()
+        } catch (e) {
+          setToast(`cohort: ${e && e.message || e}`)
+        }
+      }, [refresh])
 
       const replayPipeline = useCallback(async () => {
         setReplaying(true)
@@ -1158,8 +1213,8 @@ window.__ModuleLoader__.load({
       if (section === 'pipeline') content = h(PipelineSection, { snap, t, onPlan: planPipeline, planning, onRun: runPipeline, onCancel: cancelPipeline, runningNow, busyRun })
       else if (section === 'data') content = h(DataSection, { snap, t, onLoad: loadIntoViewer, onCopy: copyPath, busy })
       else if (section === 'qc') content = h(QcSection, { snap, t })
-      else if (section === 'results') content = h(ResultsSection, { snap, t, onInspect: inspectResults })
-      else if (section === 'cohort') content = h(CohortSection, { snap, t, onValidate: validateCohortUi, validating: busyCohort, validation: cohortValidation })
+      else if (section === 'results') content = h(ResultsSection, { snap, t, onInspect: inspectResults, onApplyResults: applyResultsView, applyingResults })
+      else if (section === 'cohort') content = h(CohortSection, { snap, t, onValidate: validateCohortUi, validating: busyCohort, validation: cohortValidation, onToggleInclude: toggleCohortInclude })
       else if (section === 'group') content = h(GroupSection, { snap, t, onRunGroup: runGroup, runningGroup: busyGroup, onInspectGroup: inspectGroup })
       else content = h(ProvenanceSection, { snap, t, onSettle: settleAnalysis, onExport: exportAnalysis, onReplay: replayPipeline, busyAction, replaying, replayResult, onCopy: copyPath })
 

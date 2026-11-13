@@ -500,11 +500,14 @@ function runView(state) {
   }
 }
 
-function ensureResults(workAbs, statsAbs) {
+function ensureResults(workAbs, statsAbs, options = {}) {
+  const threshold = Number(options.threshold ?? 3.1)
+  const minCluster = Number(options.minCluster ?? 10)
   const out = path.join(workAbs, RESULTS_CACHE)
   try {
     if (existsSync(out) && statSync(out).mtimeMs >= statSync(statsAbs).mtimeMs) {
-      return JSON.parse(readFileSync(out, 'utf8'))
+      const cached = JSON.parse(readFileSync(out, 'utf8'))
+      if (Number(cached.threshold) === threshold && Number(cached.minCluster) === minCluster) return cached
     }
   } catch {
     // fall through and recompute
@@ -514,8 +517,8 @@ function ensureResults(workAbs, statsAbs) {
     execFileSync(python, [
       RESULTS_SCRIPT, statsAbs,
       '--out', out,
-      '--threshold', '3.1',
-      '--min-cluster', '10',
+      '--threshold', String(threshold),
+      '--min-cluster', String(minCluster),
       '--max-clusters', '10',
     ], {
       cwd: PROJECT_ROOT,
@@ -533,6 +536,27 @@ function ensureResults(workAbs, statsAbs) {
       voxels: 0,
     }
   }
+}
+
+function currentResultsArtifact() {
+  const state = readProjectState()
+  if (!state) return null
+  const workAbs = resolveInside(state.workDir, 'workDir')
+  const artifacts = listArtifacts(workAbs)
+  const stats = artifacts.find((item) => item.kind === 'stats' && !/ffsremlvar/.test(item.name) && /stats-reml/.test(item.name))
+    || artifacts.find((item) => item.kind === 'stats' && !/ffsremlvar/.test(item.name))
+  return stats ? { state, workAbs, stats } : null
+}
+
+function setResultsView(params = {}) {
+  const found = currentResultsArtifact()
+  if (!found) throw Object.assign(new Error('no stats artifact for results'), { code: 'no-results' })
+  const threshold = Math.max(0.5, Math.min(Number(params.threshold) || 3.1, 20))
+  const minCluster = Math.max(1, Math.min(Math.round(Number(params.minCluster) || 10), 500))
+  const state = { ...found.state, resultsView: { threshold, minCluster } }
+  writeProjectState(state)
+  const summary = ensureResults(found.workAbs, found.stats.path, { threshold, minCluster })
+  return { threshold, minCluster, summary }
 }
 
 function datasetLabel(bidsDir) {
@@ -571,7 +595,8 @@ function buildLiveSnapshot(state) {
     clusterNote: 'No GLM yet. Run the plan to produce a stats bucket.',
   }
   if (statsArtifact) {
-    const summary = ensureResults(workAbs, statsArtifact.path)
+    const resultsView = state.resultsView || { threshold: 3.1, minCluster: 10 }
+    const summary = ensureResults(workAbs, statsArtifact.path, resultsView)
     if (summary.error) {
       results = {
         ...results,
@@ -1468,7 +1493,8 @@ function exportPackage() {
     viewerIncluded = { script: 'viewer/viewer.ffs', workspace: 'viewer/workspace.json' }
   }
 
-  const results = ensureResults(workAbs, resolveInside(settled.artifacts.find((a) => a.kind === 'stats' && !/ffsremlvar/.test(a.name))?.path || scriptSrc, 'stats'))
+  const resultsView = state.resultsView || { threshold: 3.1, minCluster: 10 }
+  const results = ensureResults(workAbs, statsArtifact ? resolveInside(statsArtifact.path, 'stats') : '')
   const contrastRows = [['contrast', 'subBrick', 'peakT', 'i', 'j', 'k', 'x_mm', 'y_mm', 'z_mm']]
   const clusterRows = [['contrast', 'voxels', 'peakT', 'i', 'j', 'k', 'x_mm', 'y_mm', 'z_mm']]
   for (const contrast of results.contrasts || []) {
@@ -1772,6 +1798,7 @@ function doctorChecks() {
 // ------------------------------------------------------------------ cohort / group
 const DEFAULT_COHORT_ROOT = path.join(PROJECT_ROOT, 'work', 'ds005165')
 const GROUP_STATE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-analysis-group.json')
+const COHORT_PREFS_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-cohort-include.json')
 
 /** The cohort lives beside the current subject's work dir: work/<dataset>/<subject>. */
 function currentProjectWorkDir() {
@@ -1791,6 +1818,22 @@ function cohortRootForState(state) {
   } catch {
     return DEFAULT_COHORT_ROOT
   }
+}
+
+function readCohortPrefs() {
+  try {
+    if (existsSync(COHORT_PREFS_FILE)) {
+      const value = JSON.parse(readFileSync(COHORT_PREFS_FILE, 'utf8'))
+      return value && typeof value === 'object' ? value : {}
+    }
+  } catch { /* empty */ }
+  return {}
+}
+
+function writeCohortPrefs(prefs) {
+  mkdirSync(path.dirname(COHORT_PREFS_FILE), { recursive: true })
+  writeFileSync(COHORT_PREFS_FILE, `${JSON.stringify(prefs, null, 2)}\n`)
+  return prefs
 }
 
 function currentCohortRoot() {
@@ -1860,12 +1903,13 @@ function discoverCohort(workRootAbs) {
       }
     }
   }
+  const prefs = readCohortPrefs()[cohort.root] || {}
   const subjects = [...bySubject.values()]
-    .map((group) => ({ ...group.record, variants: group.variants }))
+    .map((group) => ({ ...group.record, variants: group.variants, include: prefs[group.record.subject] !== false }))
     .sort((a, b) => a.subject.localeCompare(b.subject))
   cohort.subjects = subjects
   cohort.total = subjects.length
-  cohort.included = subjects.filter((subject) => subject.stats).length
+  cohort.included = subjects.filter((subject) => subject.stats && subject.include !== false).length
   cohort.status = subjects.length ? (cohort.included >= 2 ? 'ready' : 'single-subject') : 'empty'
   if (cohort.included >= 2) cohort.note = `${cohort.included} subjects with a first-level fit; 3dMEMA can run.`
   return cohort
@@ -2201,7 +2245,7 @@ function exportCohortPackage(params = {}) {
   if (!validation.subjects.length) {
     throw Object.assign(new Error('cohort has no subjects to export'), { code: 'cohort-empty' })
   }
-  const failures = validation.subjects.filter((subject) => !subject.ok)
+  const failures = validation.subjects.filter((subject) => !subject.ok && exportSubjects.some((item) => item.id === subject.id))
   if (failures.length) {
     throw Object.assign(
       new Error(`cohort validation failed: ${failures.map((subject) => `${subject.id} (${subject.issues.map((issue) => issue.code).join(', ')})`).join('; ')}`),
@@ -2209,11 +2253,15 @@ function exportCohortPackage(params = {}) {
     )
   }
   const cohort = discoverCohort(rootAbs)
+  const exportSubjects = cohort.subjects.filter((subject) => subject.include !== false)
+  if (!exportSubjects.length) {
+    throw Object.assign(new Error('all cohort subjects are excluded'), { code: 'cohort-empty' })
+  }
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-')
   const dir = path.join(EXPORT_ROOT, `ffs_cohort_${path.basename(rootAbs)}_${stamp}`)
   mkdirSync(path.join(dir, 'subjects'), { recursive: true })
   let fileCount = 0
-  for (const subject of cohort.subjects) {
+  for (const subject of exportSubjects) {
     const workAbs = resolveInside(subject.workDir, 'workDir')
     const checked = validation.subjects.find((item) => item.id === subject.id)
     for (const variant of subject.variants || []) {
@@ -2241,7 +2289,7 @@ function exportCohortPackage(params = {}) {
     const subjectRoot = path.join(dir, 'subjects', subject.id)
     writeFileSync(path.join(subjectRoot, 'subject.yaml'), subjectYaml(subject, checked))
   }
-  writeFileSync(path.join(dir, 'cohort.yaml'), cohortYaml(cohort, validation))
+  writeFileSync(path.join(dir, 'cohort.yaml'), cohortYaml({ ...cohort, subjects: exportSubjects, included: exportSubjects.filter((subject) => subject.stats).length }, validation))
   writeFileSync(path.join(dir, 'cohort.json'), `${JSON.stringify({
     schema: 'ffs-cohort/1',
     generated_at: validation.checkedAt,
@@ -2257,7 +2305,7 @@ function exportCohortPackage(params = {}) {
       issues: subject.issues,
     })),
   }, null, 2)}\n`)
-  writeFileSync(path.join(dir, 'run.sh'), cohortRunScript(cohort.subjects.map((subject) => subject.id)))
+  writeFileSync(path.join(dir, 'run.sh'), cohortRunScript(exportSubjects.map((subject) => subject.id)))
   writeFileSync(path.join(dir, 'validate.py'), cohortValidateScript())
   writeFileSync(path.join(dir, 'env.sh'), `#!/usr/bin/env bash
 # Environment recorded at export time (absolute paths).
@@ -2869,6 +2917,19 @@ export function apply(ctx) {
   }), 'ffs-analysis: run tool')
 
   ctx.effect(() => ctx.tools.register({
+    name: 'ffs_analysis_resume',
+    description: 'Resume an interrupted/stopped analysis run: existing stage outputs are skipped.',
+    parameters: { type: 'object', properties: {}, required: [] },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    },
+    async execute() {
+      return JSON.stringify(startRun(), null, 1)
+    },
+  }), 'ffs-analysis: resume tool')
+
+  ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_cancel',
     description: 'Stop the analysis run currently in progress (process group signal).',
     parameters: { type: 'object', properties: {}, required: [] },
@@ -2891,7 +2952,9 @@ export function apply(ctx) {
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['list', 'validate', 'export'], description: 'list, validate (default) or export the cohort package.' },
+        action: { type: 'string', enum: ['list', 'validate', 'export', 'include'], description: 'list, validate (default), export, or set include/exclude.' },
+        subject: { type: 'string', description: 'Subject id for action=include.' },
+        include: { type: 'boolean', description: 'Include (true) or exclude (false) the subject.' },
         workRoot: { type: 'string', description: 'Cohort work root, project-relative (default: current dataset).' },
       },
       required: [],
@@ -2902,6 +2965,17 @@ export function apply(ctx) {
     },
     async execute(args) {
       const workRoot = args?.workRoot ? resolveInside(args.workRoot, 'workRoot') : currentCohortRoot()
+      if (args?.action === 'include') {
+        const subject = String(args.subject || '').replace(/^sub-/, '')
+        if (!subject) throw new Error('subject is required for include')
+        const rootRel = path.relative(PROJECT_ROOT, workRoot)
+        const prefs = readCohortPrefs()
+        prefs[rootRel] = prefs[rootRel] || {}
+        prefs[rootRel][subject] = Boolean(args.include)
+        writeCohortPrefs(prefs)
+        const cohort = discoverCohort(workRoot)
+        return JSON.stringify({ ok: true, cohort, validation: validateCohort(workRoot) }, null, 1)
+      }
       if (args?.action === 'export') {
         return JSON.stringify(exportCohortPackage({ workRoot: path.relative(PROJECT_ROOT, workRoot) }), null, 1)
       }
@@ -2936,6 +3010,36 @@ export function apply(ctx) {
       return JSON.stringify({ ok: true, bids, doctor }, null, 1)
     },
   }), 'ffs-analysis: scan tool')
+
+  ctx.effect(() => ctx.tools.register({
+    name: 'ffs_analysis_results',
+    description: [
+      'Recompute the first-level results table with a different cluster-forming threshold or',
+      'minimum cluster size, persist the view in the project state and return the summary.',
+    ].join('\n'),
+    parameters: {
+      type: 'object',
+      properties: {
+        threshold: { type: 'number', description: 'Cluster-forming |t| threshold (0.5–20, default 3.1).' },
+        minCluster: { type: 'number', description: 'Minimum cluster size in voxels (default 10).' },
+      },
+      required: [],
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    },
+    async execute(args) {
+      const value = setResultsView(args || {})
+      return JSON.stringify({
+        ok: true,
+        threshold: value.threshold,
+        minCluster: value.minCluster,
+        contrasts: (value.summary.contrasts || []).length,
+        clusters: (value.summary.contrasts || []).reduce((total, contrast) => total + (contrast.clusters || []).length, 0),
+      }, null, 1)
+    },
+  }), 'ffs-analysis: results tool')
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_tool_run',
@@ -3170,10 +3274,29 @@ export function apply(ctx) {
         return
       }
 
+      if (rel === 'results') {
+        try {
+          const body = req.method === 'POST' ? await readJsonBody(req) : {}
+          writeJson(res, 200, { ok: true, ...setResultsView(body) })
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
       if (rel === 'cohort') {
         try {
           const body = req.method === 'POST' ? await readJsonBody(req) : {}
           const workRoot = body.workRoot ? resolveInside(body.workRoot, 'workRoot') : currentCohortRoot()
+          if (body.action === 'include') {
+            const subject = String(body.subject || '').replace(/^sub-/, '')
+            if (!subject) throw Object.assign(new Error('subject is required'), { code: 'cohort-invalid' })
+            const rootRel = path.relative(PROJECT_ROOT, workRoot)
+            const prefs = readCohortPrefs()
+            prefs[rootRel] = prefs[rootRel] || {}
+            prefs[rootRel][subject] = Boolean(body.include)
+            writeCohortPrefs(prefs)
+          }
           if (body.action === 'export') {
             writeJson(res, 200, { ok: true, ...exportCohortPackage({ workRoot: path.relative(PROJECT_ROOT, workRoot) }) })
             return
