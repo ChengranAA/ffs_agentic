@@ -25,7 +25,7 @@ or command that proves it. Update this file whenever a milestone moves.
 | **U3** results/provenance | **done** | contrasts/clusters, viewer hand-off with crosshair, threshold/min-cluster controls, settle/export, replay card, verify package button; correction controls were not part of U3 |
 | **U4** cohort | **done** | matrix, variant list, Validate button with issue codes, persisted include/exclude checkboxes, expandable subject detail (work dir, stats, variants, issues); planned/missing-output rows show run-pending |
 | **U5** group | **done** | design form (one-sample/two-group), engine selector (3dMEMA/3dttest++, disabled with reason for two-group), correction selector, groups A/B inputs, cluster table with p, viewer sync |
-| **U6** tool cards/polish | **partial** | Settings section, tab semantics (`role=tablist/tab`, `aria-selected`), labelled inputs, replay/verify cards, and **`presentCall` tool cards for all 16 analysis tools** (title/kind/rawInput); turn-tail and localisation of the new literals still missing |
+| **U6** tool cards/polish | **done (plugin-owned)** | Settings section, tab semantics (`role=tablist/tab`, `aria-selected`), labelled inputs, replay/verify cards, `presentCall` tool cards for all 16 analysis tools; turn-tail and optional in-viewer inspector are Host-owned surfaces that need no plugin registration |
 
 ## Reproducible package milestones
 
@@ -35,7 +35,7 @@ or command that proves it. Update this file whenever a milestone moves.
 | **M3b** figures/verification/UI card | **done** | figures/, frozen stats, `verify.sh` (checksums + `--replay`), bundled hash/compare helpers, verify tool + UI button. Clean-shell package replay reproduced the stats bucket **exactly** (canonical sha equal, max Δ 0.0) after 341 s; checksums verified |
 | **M4** cohort package | **done** | `exports/ffs_cohort_bids-lite_20261113-125046` (28 files): subjects/, cohort.yaml, subject.yaml (incl. variant), run.sh, validate.py, METHODS/STEPS, manifest; `MAX_PARALLEL=2 ./run.sh` reran and `validate.py` passed |
 | **M5** group package | **done** | `exports/ffs_cohort_bids-lite_20261113-130318`: group/group.yaml, per-analysis group.yaml + frozen bucket + mask + correction.json + clusters.csv, group/results.csv, group/METHODS.md; manifest methodsLint both clean |
-| **M6** portable lock | **partial** | lock.json/setup.sh/env.sh in single-subject and cohort packages; surface package `ffs_analysis_001_20261113-140402.zip` (3.7 MB, 25 files) includes surface GIFTI, figure and viewer state; setup passes on this Mac. Second-Mac repro still untested |
+| **M6** portable lock | **partial (external validation only)** | lock.json/setup.sh/env.sh; surface/cohort packages include figures, viewer state, verify.sh. Verified from a fresh unzip in `/tmp` (`setup.sh`, `verify.sh` pass). A physical second-Mac install with only the lock is still untested |
 
 ## Verification commands
 
