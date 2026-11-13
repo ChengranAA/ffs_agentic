@@ -12,7 +12,7 @@ or command that proves it. Update this file whenever a milestone moves.
 | **M2 — Run + QC + viewer** | partial (acceptance behaviour met) | fixture pipeline completes in 91 s; stage progress/times visible; QC produced 17 figures + `qc_review.tsv` (7 rows × 38 cols) surfaced in the tab; viewer screenshot saved under `screenshots/`; run state self-heals from the log after a Host reload. Missing: `ctx.jobs` wrapper and resume UI |
 | **M3 — Analysis** | partial | stats buckets loaded with sub-brick/threshold/colormap via viewer hand-off; results inspector (peaks/clusters); settle/export package. Missing: threshold/correction controls, screenshots |
 | **M4 — Cohort** | **done (backend + package); UI partial** | fixture cohort of 3 subjects on one 42³ grid; `ffs_cohort` list/validate/export; `subjects/` + `cohort.yaml` + `subject.yaml` (canonical + hand-edited `sub-002-edited` variant); bounded-parallel `run.sh` reran all three and revalidated; negative cohort reports `grid-mismatch` and `missing-output` and export refuses. UI: matrix/variants/validate button; include/exclude + subject detail still open (U4) |
-| **M5 — Group level** | partial | one-sample 3dMEMA over 2 subjects (native common grid via 3dresample), group clusters + viewer hand-off. Missing: two-group/covariate designs, cluster/permutation corrections, engine adapters, group package + methods |
+| **M5 — Group level** | **done (adapters + package)** | one-sample 3dMEMA and two-group 3dttest++ on the 4-subject fixture; common-grid resampling; permutation/max-cluster correction adapter (`scripts/group_permutation.py`) and cluster-size threshold; `group.yaml` + per-analysis bucket/correction/clusters + group METHODS in the cohort package; methods lint clean. Covariates and true 3dClustSim remain a follow-on |
 | **M6 — Surface + interop + replay** | not started | — |
 
 ## Analysis UI milestones
@@ -24,7 +24,7 @@ or command that proves it. Update this file whenever a milestone moves.
 | **U2** live run/log | done | progress, stage times, cleaned log, cancel, QC table/figures, viewer screenshots, load-to-viewer |
 | **U3** results/provenance | partial | contrast/cluster tables, viewer hand-off, settle/export, provenance; threshold/correction controls and replay card missing |
 | **U4** cohort | partial | matrix, variant list and Validate button with per-subject issue codes; include/exclude and subject detail still missing |
-| **U5** group | partial | analysis cards, run one-sample 3dMEMA, cluster table, viewer sync; engine/correction selectors, two-group form missing |
+| **U5** group | **done** | design form (one-sample/two-group), engine selector (3dMEMA/3dttest++, disabled with reason for two-group), correction selector, groups A/B inputs, cluster table with p, viewer sync |
 | **U6** tool cards/polish | not started | — |
 
 ## Reproducible package milestones
@@ -34,7 +34,7 @@ or command that proves it. Update this file whenever a milestone moves.
 | **M3a** settle/export skeleton | done | `exports/ffs_analysis_01_20261112-221452` (16 files, checksums verified) |
 | **M3b** figures/verification/UI card | partial | settle + export card exist; figures, clean-shell rerun and verification modes missing |
 | **M4** cohort package | **done** | `exports/ffs_cohort_bids-lite_20261113-125046` (28 files): subjects/, cohort.yaml, subject.yaml (incl. variant), run.sh, validate.py, METHODS/STEPS, manifest; `MAX_PARALLEL=2 ./run.sh` reran and `validate.py` passed |
-| **M5** group package | not started | group analysis not exported |
+| **M5** group package | **done** | `exports/ffs_cohort_bids-lite_20261113-130318`: group/group.yaml, per-analysis group.yaml + frozen bucket + mask + correction.json + clusters.csv, group/results.csv, group/METHODS.md; manifest methodsLint both clean |
 | **M6** portable lock | not started | — |
 
 ## Verification commands
@@ -48,6 +48,8 @@ or command that proves it. Update this file whenever a milestone moves.
 ffs_analysis_snapshot                                      # M2: qc figures/review/screenshots
 ffs_cohort validate                                        # M4: 3-subject fixture cohort
 ffs_cohort export                                          # M4: subjects/ + cohort.yaml + run.sh
+ffs_group model=two-group groups='{"a":["001","002"],"b":["003","004"]}' correction=permutation
+                                                            # M5: engine + correction + package
 ```
 
 Agent tools: `ffs_project_scan`, `ffs_analysis_plan`, `ffs_analysis_run`,

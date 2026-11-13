@@ -1721,14 +1721,21 @@ function groupSummaryRecord(analysis) {
     peakMM: contrast.peakMM,
     threshold,
   }))
-  const clusters = (summary.contrasts || []).flatMap((contrast) => (contrast.clusters || []).map((cluster) => ({
-    id: `${contrast.name}.${cluster.ijk.join('_')}`,
-    contrast: contrast.name,
-    subBrick: contrast.subBrick,
-    subBrickIndex: contrast.index,
-    threshold,
-    ...cluster,
-  }))).slice(0, 40)
+  const corrected = new Map(((analysis.correctionResult && analysis.correctionResult.clusters) || [])
+    .map((cluster) => [cluster.ijk.join('_'), cluster]))
+  const clusters = (summary.contrasts || []).flatMap((contrast) => (contrast.clusters || []).map((cluster) => {
+    const fix = corrected.get(cluster.ijk.join('_'))
+    return {
+      id: `${contrast.name}.${cluster.ijk.join('_')}`,
+      contrast: contrast.name,
+      subBrick: contrast.subBrick,
+      subBrickIndex: contrast.index,
+      threshold,
+      ...cluster,
+      p: fix ? fix.p : null,
+      significant: fix ? fix.significant : null,
+    }
+  })).slice(0, 40)
   return {
     ...analysis,
     status: 'completed',
@@ -1736,6 +1743,7 @@ function groupSummaryRecord(analysis) {
     voxels: summary.voxels,
     contrasts,
     clusters,
+    correction: analysis.correctionResult || null,
     statsPath: bucketAbs,
     meanPath: analysis.mean ? resolveInside(analysis.mean, 'group mean') : null,
   }
@@ -1977,6 +1985,25 @@ sys.exit(0 if not issues else 1)
 `
 }
 
+function lintMethods(text, required = ['Methods', 'Subjects']) {
+  const issues = []
+  for (const token of ['undefined', 'NaN', 'TODO', 'TBD', 'Lorem ipsum']) {
+    if (text.includes(token)) issues.push(`placeholder: ${token}`)
+  }
+  const lower = text.toLowerCase()
+  for (const heading of required) {
+    if (!lower.includes(heading.toLowerCase())) issues.push(`missing section: ${heading}`)
+  }
+  return { ok: issues.length === 0, issues }
+}
+
+function csvText(rows) {
+  return `${rows.map((row) => row.map((value) => {
+    const text = value == null ? '' : String(value)
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+  }).join(',')).join('\n')}\n`
+}
+
 function exportCohortPackage(params = {}) {
   const rootAbs = params.workRoot ? resolveInside(params.workRoot, 'workRoot') : currentCohortRoot()
   const validation = validateCohort(rootAbs)
@@ -2043,7 +2070,74 @@ function exportCohortPackage(params = {}) {
   writeFileSync(path.join(dir, 'validate.py'), cohortValidateScript())
   try { chmodSync(path.join(dir, 'run.sh'), 0o755) } catch { /* best effort */ }
   writeFileSync(path.join(dir, 'STEPS.md'), `# Cohort rerun\n\n${cohort.included} subjects, ${validation.ok ? 'validated' : 'FAILED'}.\n\n\`\`\`bash\nMAX_PARALLEL=2 ./run.sh\npython3 validate.py\n\`\`\`\n\nEach subject directory holds its frozen autoproc script, design spec, stimuli and\n\`subject.yaml\`; non-canonical variants live under \`subjects/<id>/variants/\`.\n`)
-  writeFileSync(path.join(dir, 'METHODS.md'), `# Methods — cohort\n\nThe cohort contains **${cohort.included} subjects** processed with the frozen autoproc\nscripts in \`subjects/\`. Each subject's \`subject.yaml\` records its variants, work dir,\nrun count and validation status. The cohort was validated before export: every subject\nhas a script, design spec, stimuli and a first-level statistics bucket, and all buckets\nshare one grid (${validation.ok ? 'checked' : 'not checked'} on ${validation.checkedAt}).\n\nGroup-level analyses are added by the group export (M5).\n`)
+  const groupAnalyses = readGroupState().analyses
+    .filter((item) => groupCohortRoot(item) === validation.root)
+    .map(groupSummaryRecord)
+  let groupLint = { ok: true, issues: [] }
+  if (groupAnalyses.length) {
+    const groupDir = path.join(dir, 'group')
+    mkdirSync(groupDir, { recursive: true })
+    const groupLines = [
+      'schema: ffs-group/1',
+      `generated_at: ${yamlString(validation.checkedAt)}`,
+      `work_root: ${yamlString(validation.root)}`,
+      'analyses:',
+    ]
+    const allRows = [['analysis', 'contrast', 'model', 'engine', 'correction', 'cluster', 'voxels', 'peakT', 'p', 'significant', 'i', 'j', 'k']]
+    for (const analysis of groupAnalyses) {
+      const analysisDir = path.join(groupDir, analysis.id)
+      mkdirSync(analysisDir, { recursive: true })
+      const bucketAbs = resolveInside(analysis.bucket, 'group bucket')
+      copyFileSync(bucketAbs, path.join(analysisDir, path.basename(analysis.bucket)))
+      if (analysis.mask) copyFileSync(resolveInside(analysis.mask, 'group mask'), path.join(analysisDir, 'mask.nii.gz'))
+      if (analysis.correction) writeFileSync(path.join(analysisDir, 'correction.json'), `${JSON.stringify(analysis.correction, null, 2)}\n`)
+      const rows = [['contrast', 'voxels', 'peakT', 'p', 'significant', 'i', 'j', 'k']]
+      for (const cluster of analysis.clusters || []) {
+        rows.push([cluster.contrast, cluster.size, cluster.peakT, cluster.p, cluster.significant, ...(cluster.ijk || [])])
+        allRows.push([analysis.id, analysis.contrast, analysis.model, analysis.engine, analysis.correction ? analysis.correction.method : 'none', cluster.size, cluster.peakT, cluster.p, cluster.significant, ...(cluster.ijk || [])])
+      }
+      writeFileSync(path.join(analysisDir, 'clusters.csv'), csvText(rows))
+      writeFileSync(path.join(analysisDir, 'group.yaml'), [
+        'schema: ffs-group-analysis/1',
+        `id: ${yamlString(analysis.id)}`,
+        `contrast: ${yamlString(analysis.contrast)}`,
+        `model: ${yamlString(analysis.model)}`,
+        `engine: ${yamlString(analysis.engine)}`,
+        `n: ${analysis.n ?? analysis.nA ?? ''}`,
+        analysis.nB ? `nB: ${analysis.nB}` : null,
+        `correction: ${yamlString(analysis.correction ? analysis.correction.method : 'none')}`,
+        `threshold: ${analysis.threshold ?? 3.1}`,
+        'groups:',
+        analysis.groups ? `  a: [${(analysis.groups.a || []).map(yamlString).join(', ')}]` : '  a: []',
+        analysis.groups ? `  b: [${(analysis.groups.b || []).map(yamlString).join(', ')}]` : '  b: []',
+        `bucket: ${yamlString(`group/${analysis.id}/${path.basename(analysis.bucket)}`)}`,
+      ].filter(Boolean).join('\n') + '\n')
+      groupLines.push(`  - id: ${yamlString(analysis.id)}`)
+      groupLines.push(`    contrast: ${yamlString(analysis.contrast)}`)
+      groupLines.push(`    model: ${yamlString(analysis.model)}`)
+      groupLines.push(`    engine: ${yamlString(analysis.engine)}`)
+      groupLines.push(`    correction: ${yamlString(analysis.correction ? analysis.correction.method : 'none')}`)
+      groupLines.push(`    n: ${analysis.nA ?? analysis.n ?? ''}`)
+      groupLines.push(`    clusters: ${(analysis.clusters || []).length}`)
+      groupLines.push(`    dir: ${yamlString(`group/${analysis.id}`)}`)
+    }
+    writeFileSync(path.join(groupDir, 'group.yaml'), `${groupLines.join('\n')}\n`)
+    writeFileSync(path.join(groupDir, 'results.csv'), csvText(allRows))
+    const engineList = [...new Set(groupAnalyses.map((analysis) => analysis.engine))].join(', ')
+    const correctionList = [...new Set(groupAnalyses.map((analysis) => (analysis.correction ? analysis.correction.method : 'none')))].join(', ')
+    const groupMethods = `# Methods — group\n\nGroup-level analyses were run on the ${cohort.included} included subjects with ${engineList}. ` +
+      `The design(s) were ${[...new Set(groupAnalyses.map((analysis) => analysis.model))].join(', ')}; ` +
+      `correction: ${correctionList}. Cluster tables (voxels, peak t, p, IJK) are in \`group/results.csv\`, ` +
+      `one directory per analysis holds the frozen bucket and correction record, and \`group.yaml\` lists the designs.\n`
+    writeFileSync(path.join(groupDir, 'METHODS.md'), groupMethods)
+    groupLint = lintMethods(groupMethods, ['Methods', 'Group'])
+    if (!groupLint.ok) throw Object.assign(new Error(`group methods lint failed: ${groupLint.issues.join('; ')}`), { code: 'methods-lint' })
+  }
+  const cohortMethods = `# Methods — cohort\n\nThe cohort contains **${cohort.included} subjects** processed with the frozen autoproc\nscripts in \`subjects/\`. Each subject's \`subject.yaml\` records its variants, work dir,\nrun count and validation status. The cohort was validated before export: every subject\nhas a script, design spec, stimuli and a first-level statistics bucket, and all buckets\nshare one grid (${validation.ok ? 'checked' : 'not checked'} on ${validation.checkedAt}).` +
+    (groupAnalyses.length ? `\n\nGroup analyses: ${groupAnalyses.length} (see \`group/METHODS.md\`).` : '\n\nNo group analysis was exported.\n')
+  writeFileSync(path.join(dir, 'METHODS.md'), cohortMethods)
+  const cohortLint = lintMethods(cohortMethods, ['Methods', 'Subjects'])
+  if (!cohortLint.ok) throw Object.assign(new Error(`cohort methods lint failed: ${cohortLint.issues.join('; ')}`), { code: 'methods-lint' })
   const files = {}
   for (const absolute of walkFiles(dir)) {
     files[path.relative(dir, absolute)] = sha256File(absolute)
@@ -2055,6 +2149,8 @@ function exportCohortPackage(params = {}) {
     workRoot: validation.root,
     subjects: cohort.subjects.map((subject) => subject.id),
     validation,
+    methodsLint: { cohort: cohortLint, group: groupLint },
+    groupAnalyses: groupAnalyses.map((analysis) => analysis.id),
     files,
   }, null, 2)}\n`)
   return {
@@ -2069,11 +2165,17 @@ function exportCohortPackage(params = {}) {
 function runGroupAnalysis(params = {}) {
   const rootAbs = currentCohortRoot()
   const cohort = discoverCohort(rootAbs)
-  const subjects = cohort.subjects.filter((subject) => subject.stats)
+  const subjects = cohort.subjects.filter((subject) => subject.stats && subject.include !== false)
   if (subjects.length < 2) {
-    throw Object.assign(new Error('need at least two completed subjects for 3dMEMA'), { code: 'cohort-too-small' })
+    throw Object.assign(new Error('need at least two completed subjects'), { code: 'cohort-too-small' })
   }
   const contrast = String(params.contrast || 'scenes')
+  const model = params.model === 'two-group' ? 'two-group' : 'one-sample'
+  const engine = model === 'two-group' ? '3dttest++' : (params.engine === '3dttest++' ? '3dttest++' : '3dMEMA')
+  const correction = ['none', 'cluster', 'permutation'].includes(params.correction) ? params.correction : 'none'
+  if (model === 'two-group' && engine !== '3dttest++') {
+    throw Object.assign(new Error('two-group designs need the 3dttest++ engine'), { code: 'engine-unsupported' })
+  }
   const picks = []
   for (const subject of subjects) {
     const statsAbs = resolveInside(subject.stats, 'stats')
@@ -2087,7 +2189,32 @@ function runGroupAnalysis(params = {}) {
     }
     picks.push({ subject, statsAbs, coefIndex, tIndex })
   }
-  const id = `group-${contrast}`
+
+  const normalizeIds = (value) => (Array.isArray(value) ? value : String(value || '').split(/[\s,]+/))
+    .map((item) => String(item).trim().replace(/^sub-/, ''))
+    .filter(Boolean)
+  let groupA = []
+  let groupB = []
+  if (model === 'two-group') {
+    const requested = params.groups || {}
+    groupA = normalizeIds(requested.a)
+    groupB = normalizeIds(requested.b)
+    if (!groupA.length || !groupB.length) {
+      const ids = subjects.map((subject) => subject.subject)
+      groupA = ids.filter((_, index) => index % 2 === 0)
+      groupB = ids.filter((_, index) => index % 2 === 1)
+    }
+    const available = new Set(subjects.map((subject) => subject.subject))
+    groupA = groupA.filter((id) => available.has(id))
+    groupB = groupB.filter((id) => available.has(id))
+    const overlap = groupA.filter((id) => groupB.includes(id))
+    if (overlap.length) throw Object.assign(new Error(`subject(s) in both groups: ${overlap.join(', ')}`), { code: 'group-overlap' })
+    if (groupA.length < 2 || groupB.length < 2) {
+      throw Object.assign(new Error('two-group designs need at least two subjects per group'), { code: 'group-too-small' })
+    }
+  }
+
+  const id = model === 'two-group' ? `group-${contrast}-2grp` : `group-${contrast}`
   const workAbs = path.join(rootAbs, id)
   mkdirSync(workAbs, { recursive: true })
   const prefix = path.join(workAbs, `${id}.nii.gz`)
@@ -2104,8 +2231,6 @@ function runGroupAnalysis(params = {}) {
       mask = candidate
     } catch { mask = null }
   }
-  // Subjects keep their own native EPI grids in the bare-bones recipe; resample each
-  // contrast to one common grid before the group fit. (MNI-space pipelines share a grid.)
   const resampled = picks.map((pick) => {
     const coefOut = path.join(workAbs, `${pick.subject.id}_${contrast}_coef.nii.gz`)
     const tstatOut = path.join(workAbs, `${pick.subject.id}_${contrast}_tstat.nii.gz`)
@@ -2120,30 +2245,89 @@ function runGroupAnalysis(params = {}) {
       ], { cwd: PROJECT_ROOT, env, timeout: 180000, stdio: 'pipe' })
     } catch (error) {
       const stderr = error && error.stderr ? String(error.stderr) : ''
-      throw Object.assign(new Error(`3dresample failed for ${pick.subject.id}: ${stderr.split('\\n').filter(Boolean).slice(-2).join(' ')}`), { code: 'group-failed' })
+      throw Object.assign(new Error(`3dresample failed for ${pick.subject.id}: ${stderr.split('\n').filter(Boolean).slice(-2).join(' ')}`), { code: 'group-failed' })
     }
     return { ...pick, coefOut, tstatOut }
   })
-  const args = ['-prefix', prefix]
-  if (mask) args.push('-mask', mask)
-  args.push('-set', contrast)
-  for (const pick of resampled) {
-    args.push(pick.subject.id, pick.coefOut, pick.tstatOut)
+
+  const pickFor = (subject) => resampled.find((item) => item.subject.subject === subject)
+  for (const stale of [prefix, path.join(workAbs, 'correction.json')]) {
+    try { unlinkSync(stale) } catch { /* absent */ }
   }
-  args.push('-jobs', '2', '-model_outliers')
   try {
-    execFileSync('3dMEMA', args, { cwd: PROJECT_ROOT, env, timeout: 900000, stdio: 'pipe' })
+    if (engine === '3dttest++') {
+      const args = ['-prefix', prefix]
+      if (mask) args.push('-mask', mask)
+      if (model === 'two-group') {
+        args.push('-setA')
+        for (const subject of groupA) args.push(pickFor(subject).coefOut)
+        args.push('-setB')
+        for (const subject of groupB) args.push(pickFor(subject).coefOut)
+      } else {
+        args.push('-setA')
+        for (const pick of resampled) args.push(pick.coefOut)
+      }
+      execFileSync('3dttest++', args, { cwd: PROJECT_ROOT, env, timeout: 900000, stdio: 'pipe' })
+    } else {
+      const args = ['-prefix', prefix]
+      if (mask) args.push('-mask', mask)
+      args.push('-set', contrast)
+      for (const pick of resampled) args.push(pick.subject.id, pick.coefOut, pick.tstatOut)
+      args.push('-jobs', '2', '-model_outliers')
+      execFileSync('3dMEMA', args, { cwd: PROJECT_ROOT, env, timeout: 900000, stdio: 'pipe' })
+    }
   } catch (error) {
     const stderr = error && error.stderr ? String(error.stderr) : ''
     const detail = stderr.split('\n').filter(Boolean).slice(-3).join(' ') || (error && error.message) || 'unknown error'
-    throw Object.assign(new Error(`3dMEMA failed: ${detail}`), { code: 'group-failed' })
+    throw Object.assign(new Error(`${engine} failed: ${detail}`), { code: 'group-failed' })
   }
+
+  const preliminary = ensureResults(workAbs, prefix)
+  let correctionResult = null
+  if (correction !== 'none') {
+    const firstContrast = preliminary.contrasts && preliminary.contrasts[0]
+    if (!firstContrast) {
+      correctionResult = { method: correction, error: 'no t contrast in the group bucket', clusters: [] }
+    } else {
+      const indices = (ids) => ids.map((subject) => resampled.findIndex((item) => item.subject.subject === subject)).filter((index) => index >= 0)
+      const designFile = path.join(workAbs, 'correction-design.json')
+      const correctionFile = path.join(workAbs, 'correction.json')
+      writeFileSync(designFile, `${JSON.stringify({
+        method: correction,
+        model,
+        threshold: preliminary.threshold ?? 3.1,
+        coefs: resampled.map((item) => item.coefOut),
+        stats: prefix,
+        stat_index: firstContrast.index,
+        min_cluster: preliminary.minCluster ?? 10,
+        groups: model === 'two-group' ? { a: indices(groupA), b: indices(groupB) } : undefined,
+      }, null, 2)}\n`)
+      try {
+        execFileSync(pythonPath(), [
+          path.join(PKG_DIR, 'scripts', 'group_permutation.py'),
+          '--design', designFile, '--out', correctionFile,
+        ], { env: ffsEnv(), cwd: PROJECT_ROOT, timeout: 600000, stdio: 'pipe' })
+        correctionResult = JSON.parse(readFileSync(correctionFile, 'utf8'))
+        if (correctionResult.clusters) correctionResult.clusters = correctionResult.clusters.slice(0, 50)
+      } catch (error) {
+        const stderr = error && error.stderr ? String(error.stderr) : ''
+        correctionResult = { method: correction, error: stderr.split('\n').filter(Boolean).slice(-2).join(' ') || String(error && error.message), clusters: [] }
+      }
+    }
+  }
+
   const record = {
     id,
     contrast,
-    engine: '3dMEMA',
-    design: 'one-sample',
-    n: picks.length,
+    engine,
+    design: model,
+    model,
+    correction,
+    correctionResult,
+    groups: model === 'two-group' ? { a: groupA, b: groupB } : null,
+    n: model === 'two-group' ? Math.min(groupA.length, groupB.length) : picks.length,
+    nA: model === 'two-group' ? groupA.length : picks.length,
+    nB: model === 'two-group' ? groupB.length : null,
     at: new Date().toISOString(),
     workDir: path.relative(PROJECT_ROOT, workAbs),
     bucket: path.relative(PROJECT_ROOT, prefix),
@@ -2348,40 +2532,68 @@ export function apply(ctx) {
     },
   }), 'ffs-analysis: scan tool')
 
+  const groupParameters = {
+    type: 'object',
+    properties: {
+      contrast: { type: 'string', description: 'First-level contrast name without suffixes (default "scenes").' },
+      model: { type: 'string', enum: ['one-sample', 'two-group'], description: 'Group design (default one-sample).' },
+      engine: { type: 'string', enum: ['3dMEMA', '3dttest++'], description: 'Engine; two-group forces 3dttest++.' },
+      correction: { type: 'string', enum: ['none', 'cluster', 'permutation'], description: 'Cluster-size or permutation correction (default none).' },
+      groups: {
+        type: 'object',
+        description: 'Two-group assignment: {a: [subject ids], b: [subject ids]}; defaults to alternating subjects.',
+        properties: {
+          a: { type: 'array', items: { type: 'string' } },
+          b: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+    required: [],
+  }
+  const runGroupTool = (args) => {
+    const record = runGroupAnalysis(args || {})
+    return JSON.stringify({
+      ok: true,
+      id: record.id,
+      contrast: record.contrast,
+      model: record.model,
+      engine: record.engine,
+      correction: record.correction,
+      correctionClusters: record.correctionResult ? (record.correctionResult.clusters || []).length : 0,
+      correctionError: record.correctionResult && record.correctionResult.error ? record.correctionResult.error : null,
+      n: record.n,
+      clusters: record.clusters.length,
+      status: record.status,
+    }, null, 1)
+  }
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_group',
     description: [
-      'Run a one-sample group analysis with AFNI 3dMEMA across every completed subject',
-      'in the active cohort work root, using that contrast\'s Coef and Tstat sub-bricks',
-      'from each subject\'s REML bucket. Requires at least two subjects.',
+      'Run a group analysis across the active cohort: one-sample 3dMEMA (Coef+Tstat pairs) or',
+      'two-group 3dttest++ (group A vs B on subject Coef maps), optionally with cluster-size or',
+      'permutation correction. Requires at least two subjects (two per group for two-group).',
     ].join('\n'),
-    parameters: {
-      type: 'object',
-      properties: {
-        contrast: {
-          type: 'string',
-          description: 'First-level contrast name without suffixes (default "scenes").',
-        },
-      },
-      required: [],
-    },
+    parameters: groupParameters,
     output: {
       schema: { type: 'string' },
       render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
     },
-    async execute(args) {
-      const record = runGroupAnalysis(args || {})
-      return JSON.stringify({
-        ok: true,
-        id: record.id,
-        contrast: record.contrast,
-        engine: record.engine,
-        n: record.n,
-        clusters: record.clusters.length,
-        status: record.status,
-      }, null, 1)
-    },
+    async execute(args) { return runGroupTool(args) },
   }), 'ffs-analysis: group tool')
+
+  ctx.effect(() => ctx.tools.register({
+    name: 'ffs_group',
+    description: [
+      'Alias of ffs_analysis_group: one-sample 3dMEMA or two-group 3dttest++ over the active',
+      'cohort, with optional cluster/permutation correction.',
+    ].join('\n'),
+    parameters: groupParameters,
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    },
+    async execute(args) { return runGroupTool(args) },
+  }), 'ffs-analysis: ffs_group alias')
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_settle',

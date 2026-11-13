@@ -663,19 +663,67 @@ window.__ModuleLoader__.load({
       const group = snap.group || {}
       const cohort = group.cohort || snap.cohort || {}
       const analyses = Array.isArray(group.analyses) ? group.analyses : []
-      const canRun = (cohort.included || 0) >= 2 && !runningGroup
+      const subjects = Array.isArray(cohort.subjects) ? cohort.subjects : []
+      const [model, setModel] = React.useState('one-sample')
+      const [engine, setEngine] = React.useState('3dMEMA')
+      const [correction, setCorrection] = React.useState('none')
+      const suggestedA = subjects.filter((_, index) => index % 2 === 0).map((subject) => subject.subject).join(', ')
+      const suggestedB = subjects.filter((_, index) => index % 2 === 1).map((subject) => subject.subject).join(', ')
+      const [groupA, setGroupA] = React.useState('')
+      const [groupB, setGroupB] = React.useState('')
+      const parseIds = (value) => String(value || '').split(/[\s,]+/).map((item) => item.trim().replace(/^sub-/, '')).filter(Boolean)
+      const effectiveEngine = model === 'two-group' ? '3dttest++' : engine
+      const a = parseIds(groupA || suggestedA)
+      const b = parseIds(groupB || suggestedB)
+      const splitOk = model !== 'two-group' || (a.length >= 2 && b.length >= 2)
+      const canRun = (cohort.included || 0) >= 2 && !runningGroup && splitOk
+      const run = () => onRunGroup({
+        contrast: 'scenes',
+        model,
+        engine: effectiveEngine,
+        correction,
+        groups: model === 'two-group' ? { a, b } : undefined,
+      })
+      const correctionText = (analysis) => {
+        const fix = analysis.correction
+        if (!fix) return 'uncorrected'
+        if (fix.error) return `${fix.method}: ${fix.error}`
+        return `${fix.method} · n=${fix.nPerm} · cluster≥${fix.clusterThreshold}`
+      }
       return h(Card, { title: t('groupAnalyses'), subtitle: `${analyses.length}` },
-        h('div', { className: 'ffa-row' },
-          h('span', { className: 'ffa-small ffa-muted' },
-            `${cohort.included || 0} subjects · engine 3dMEMA · one-sample`),
+        h('div', { className: 'ffa-small ffa-muted', style: { marginBottom: 8 } },
+          `${cohort.included || 0} subjects · fixed effects: one-sample 3dMEMA / two-group 3dttest++`),
+        h('div', { className: 'ffa-row', style: { flexWrap: 'wrap', gap: 6 } },
+          h('label', { className: 'ffa-small' }, 'design ',
+            h('select', { className: 'ffa-input', value: model, onChange: (event) => setModel(event.target.value) },
+              h('option', { value: 'one-sample' }, 'one-sample'),
+              h('option', { value: 'two-group' }, 'two-group'))),
+          h('label', { className: 'ffa-small' }, 'engine ',
+            h('select', {
+              className: 'ffa-input', value: effectiveEngine,
+              disabled: model === 'two-group',
+              title: model === 'two-group' ? 'two-group designs use 3dttest++ only' : '',
+              onChange: (event) => setEngine(event.target.value),
+            },
+              h('option', { value: '3dMEMA' }, '3dMEMA'),
+              h('option', { value: '3dttest++' }, '3dttest++'))),
+          h('label', { className: 'ffa-small' }, 'correction ',
+            h('select', { className: 'ffa-input', value: correction, onChange: (event) => setCorrection(event.target.value) },
+              h('option', { value: 'none' }, 'none'),
+              h('option', { value: 'cluster' }, 'cluster size'),
+              h('option', { value: 'permutation' }, 'permutation FWE'))),
           h('span', { className: 'ffa-spacer' }),
-          h('button', {
-            className: 'ffa-btn ffa-btn-primary',
-            onClick: onRunGroup,
-            disabled: !canRun,
-            title: canRun ? 'One-sample 3dMEMA on the scenes contrast' : 'Two completed subjects are required',
-          }, runningGroup ? t('groupRunning') : t('runGroup'))),
-        group.note ? h('div', { className: 'ffa-small ffa-muted' }, group.note) : null,
+          h('button', { className: 'ffa-btn ffa-btn-primary', onClick: run, disabled: !canRun },
+            runningGroup ? t('groupRunning') : t('runGroup'))),
+        model === 'two-group'
+          ? h('div', { className: 'ffa-row', style: { marginTop: 6, gap: 6 } },
+            h('label', { className: 'ffa-small' }, 'A ',
+              h('input', { className: 'ffa-input', value: groupA, placeholder: suggestedA, onChange: (event) => setGroupA(event.target.value) })),
+            h('label', { className: 'ffa-small' }, 'B ',
+              h('input', { className: 'ffa-input', value: groupB, placeholder: suggestedB, onChange: (event) => setGroupB(event.target.value) })),
+            h('span', { className: 'ffa-small ffa-muted' }, `${a.length} vs ${b.length} (ids without sub-)`))
+          : null,
+        group.note ? h('div', { className: 'ffa-small ffa-muted', style: { marginTop: 6 } }, group.note) : null,
         analyses.length
           ? analyses.map((analysis) => h('div', {
             key: analysis.id,
@@ -692,26 +740,27 @@ window.__ModuleLoader__.load({
               h('span', { className: 'ffa-spacer' }),
               h(StatusPill, { status: analysis.status || analysis.error ? 'failed' : 'completed' })),
             h('div', { className: 'ffa-small ffa-muted', style: { marginTop: 4 } },
-              `${analysis.engine || ''} · N=${analysis.n ?? '—'} · ${analysis.clusters?.length ?? 0} clusters`),
-            analysis.error
-              ? h('div', { className: 'ffa-small', style: { color: 'var(--dsw-alias-state-error-primary)', marginTop: 4 } }, analysis.error)
+              `${analysis.model || analysis.design || ''} · ${analysis.engine || ''} · ${(analysis.nA || analysis.n) ?? '—'}${analysis.nB ? ` vs ${analysis.nB}` : ''} · ${correctionText(analysis)}`),
+            analysis.correction && analysis.correction.error
+              ? h('div', { className: 'ffa-small', style: { color: 'var(--dsw-alias-state-error-primary)', marginTop: 4 } }, analysis.correction.error)
               : null,
             analysis.clusters?.length
               ? h('table', { className: 'ffa-table', style: { marginTop: 6 } },
                 h('thead', null, h('tr', null,
-                  h('th', null, 'vox'), h('th', null, 'peak t'), h('th', null, 'IJK'), h('th', null, ''))),
-                h('tbody', null, analysis.clusters.slice(0, 8).map((cluster) => h('tr', {
+                  h('th', null, 'vox'), h('th', null, 'peak t'), h('th', null, 'p'), h('th', null, 'IJK'), h('th', null, ''))),
+                h('tbody', null, analysis.clusters.slice(0, 10).map((cluster) => h('tr', {
                   key: cluster.id,
                   onClick: () => onInspectGroup(analysis, cluster.ijk),
                 },
                 h('td', null, cluster.size),
                 h('td', null, cluster.peakT),
+                h('td', { className: 'ffa-mono' }, cluster.p == null ? '—' : Number(cluster.p).toFixed(3)),
                 h('td', { className: 'ffa-mono' }, Array.isArray(cluster.ijk) ? cluster.ijk.join(', ') : '—'),
                 h('td', null, h('button', {
                   className: 'ffa-btn',
                   onClick: (event) => { event.stopPropagation(); onInspectGroup(analysis, cluster.ijk) },
                 }, t('inspect')))))))
-              : null))
+              : h('div', { className: 'ffa-small ffa-muted', style: { marginTop: 4 } }, analysis.error || 'no clusters')))
           : h('div', { className: 'ffa-empty' }, 'No group analyses yet.'))
     }
 
@@ -912,13 +961,13 @@ window.__ModuleLoader__.load({
         }
       }, [t])
 
-      const runGroup = useCallback(async () => {
+      const runGroup = useCallback(async (options = {}) => {
         setBusyGroup(true)
         try {
           const res = await fetch('/ffs-analysis/group', {
             method: 'POST', credentials: 'same-origin',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ contrast: 'scenes' }),
+            body: JSON.stringify({ contrast: 'scenes', ...options }),
           })
           const payload = await res.json().catch(() => null)
           if (!res.ok || !payload || payload.ok !== true) {
