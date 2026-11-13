@@ -1641,7 +1641,7 @@ if [ "\${1:-}" = "--replay" ]; then
   work="$(mktemp -d)"
   script=$(ls frozen/proc_sub-*.sh | head -1)
   stats=$(ls frozen/stage12.stats-reml.*.nii.gz | head -1)
-  sed 's|^OUT=.*$|OUT="$(cd "$(dirname "$0")" && pwd)"|' "$script" > "$work/$(basename "$script")"
+  sed 's|^OUT=.*$|OUT="$(cd "$(dirname "$0")" \\&\\& pwd)"|' "$script" > "$work/$(basename "$script")"
   cp frozen/stage11.design.*.toml "$work"/ 2>/dev/null || true
   cp -R frozen/stimuli "$work"/ 2>/dev/null || true
   ( cd "$work" && bash "$(basename "$script")" > replay.log 2>&1 )

@@ -24,7 +24,7 @@ window.__ModuleLoader__.load({
     const VIEWER_TAB = 'ffs-viewer'
     const LOCALE_NS = 'ffs-analysis'
 
-    const SECTIONS = ['pipeline', 'data', 'qc', 'results', 'cohort', 'group', 'provenance']
+    const SECTIONS = ['pipeline', 'data', 'qc', 'results', 'cohort', 'group', 'provenance', 'settings']
 
     const MESSAGES = {
       title: 'FFS analysis',
@@ -44,6 +44,7 @@ window.__ModuleLoader__.load({
       cohort: 'Cohort',
       group: 'Group',
       provenance: 'Provenance',
+      settings: 'Settings',
       run: 'run',
       stages: 'stages',
       status: 'status',
@@ -823,6 +824,33 @@ window.__ModuleLoader__.load({
           : h('div', { className: 'ffa-empty' }, 'No group analyses yet.'))
     }
 
+    function SettingsSection({ snap, t, onApplyResults, applyingResults }) {
+      const project = snap.project || {}
+      const [threshold, setThreshold] = React.useState(snap.results?.threshold ?? 3.1)
+      const [minCluster, setMinCluster] = React.useState(snap.results?.minCluster ?? 10)
+      return h(Card, { title: t('settings') },
+        h('dl', { className: 'ffa-kv' },
+          h('dt', null, 'dataset'), h('dd', null, project.dataset || '—'),
+          h('dt', null, 'subject'), h('dd', null, project.subject || '—'),
+          h('dt', null, 'bids root'), h('dd', { className: 'ffa-mono' }, project.root || '—'),
+          h('dt', null, 'project state'), h('dd', { className: 'ffa-mono' }, snap.state || '—'),
+          h('dt', null, 'run state'), h('dd', { className: 'ffa-mono' }, snap.runState || '—')),
+        h('div', { className: 'ffa-label', style: { marginTop: 8 } }, 'result defaults'),
+        h('div', { className: 'ffa-row' },
+          h('label', { className: 'ffa-small' }, 't ≥ ',
+            h('input', { className: 'ffa-input', type: 'number', min: 0.5, max: 20, step: 0.1,
+              'aria-label': 'default cluster threshold', value: threshold,
+              onChange: (event) => setThreshold(Number(event.target.value)) })),
+          h('label', { className: 'ffa-small' }, 'min vox ',
+            h('input', { className: 'ffa-input', type: 'number', min: 1, max: 500, step: 1,
+              'aria-label': 'default minimum cluster size', value: minCluster,
+              onChange: (event) => setMinCluster(Number(event.target.value)) })),
+          h('button', { className: 'ffa-btn', onClick: () => onApplyResults({ threshold, minCluster }), disabled: applyingResults },
+            applyingResults ? '…' : t('applyResults'))),
+        h('div', { className: 'ffa-small ffa-muted', style: { marginTop: 8 } },
+          'Tools: ffs_tool_run (argv escape hatch), ffs_replay, ffs_analysis_verify; cohort and group settings live in their sections.'))
+    }
+
     function ProvenanceSection({ snap, t, onSettle, onExport, onReplay, onVerify, busyAction, replaying, replayResult, verifying, verifyResult, onCopy }) {
       const provenance = snap.provenance || {}
       const completed = snap.pipeline?.status === 'completed'
@@ -1273,6 +1301,7 @@ window.__ModuleLoader__.load({
       else if (section === 'results') content = h(ResultsSection, { snap, t, onInspect: inspectResults, onApplyResults: applyResultsView, applyingResults })
       else if (section === 'cohort') content = h(CohortSection, { snap, t, onValidate: validateCohortUi, validating: busyCohort, validation: cohortValidation, onToggleInclude: toggleCohortInclude })
       else if (section === 'group') content = h(GroupSection, { snap, t, onRunGroup: runGroup, runningGroup: busyGroup, onInspectGroup: inspectGroup })
+      else if (section === 'settings') content = h(SettingsSection, { snap, t, onApplyResults: applyResultsView, applyingResults })
       else content = h(ProvenanceSection, { snap, t, onSettle: settleAnalysis, onExport: exportAnalysis, onReplay: replayPipeline, onVerify: verifyPackageUi, busyAction, replaying, replayResult, verifying, verifyResult, onCopy: copyPath })
 
       return h('div', { className: 'ffa-root' },
@@ -1285,10 +1314,12 @@ window.__ModuleLoader__.load({
           h('button', { className: 'ffa-btn', onClick: refresh, disabled: refreshing, title: t('refresh') }, refreshing ? '…' : t('refresh')),
           h('button', { className: 'ffa-btn ffa-btn-primary', onClick: openViewer }, t('openViewer'))),
         h('div', { className: 'ffa-main' },
-          h('nav', { className: 'ffa-rail' }, SECTIONS.map((name) => h('button', {
+          h('nav', { className: 'ffa-rail', role: 'tablist', 'aria-label': 'analysis sections' }, SECTIONS.map((name) => h('button', {
             key: name,
             type: 'button',
             className: `ffa-rail-item${section === name ? ' is-active' : ''}`,
+            role: 'tab',
+            'aria-selected': section === name,
             onClick: () => setSection(name),
           }, h(Icon, { kind: name }), h('span', { className: 'ffa-rail-label' }, t(name)),
           counts[name] !== undefined ? h('span', { className: 'ffa-rail-count' }, counts[name]) : null))),
