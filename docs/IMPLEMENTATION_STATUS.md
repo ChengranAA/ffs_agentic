@@ -1,5 +1,14 @@
 # Implementation status against the workflow spec
 
+**Completion summary (round 10).** All workflow milestones **M0–M6** and UI milestones
+**U0–U6 (plugin-owned scope)** are implemented; reproducible-package milestones **M3a,
+M3b, M4, M5, M6 (rehearsed)** are implemented. Evidence: 4/4 tests pass; fixture, cohort,
+group and fsaverage-surface packages exported; clean-unzip package-local install + checksum
+verification; hash-equal replay from both the checkout and the installed package venv.
+Remaining limitation: a physical second-Mac run was not possible here; the earlier
+bare-bones fixture replay shows REML floating-point noise while the surface package replay
+is exact.
+
 Living checklist for [WORKFLOW.md](WORKFLOW.md) milestones. Each line names the artifact
 or command that proves it. Update this file whenever a milestone moves.
 
@@ -35,7 +44,7 @@ or command that proves it. Update this file whenever a milestone moves.
 | **M3b** figures/verification/UI card | **done** | figures/, frozen stats, `verify.sh` (checksums + `--replay`), bundled hash/compare helpers, verify tool + UI button. Clean-shell package replay reproduced the stats bucket **exactly** (canonical sha equal, max Δ 0.0) after 341 s; checksums verified |
 | **M4** cohort package | **done** | `exports/ffs_cohort_bids-lite_20261113-125046` (28 files): subjects/, cohort.yaml, subject.yaml (incl. variant), run.sh, validate.py, METHODS/STEPS, manifest; `MAX_PARALLEL=2 ./run.sh` reran and `validate.py` passed |
 | **M5** group package | **done** | `exports/ffs_cohort_bids-lite_20261113-130318`: group/group.yaml, per-analysis group.yaml + frozen bucket + mask + correction.json + clusters.csv, group/results.csv, group/METHODS.md; manifest methodsLint both clean |
-| **M6** portable lock | **done (rehearsed)** | package vendors `code/fastfuncstuff`; fresh unzip → `setup.sh --install --reuse-python --python <venv>` built/installed the FFS wheel, local venv imports numpy/nibabel/scipy/torch + fastfuncstuff, `ffs_info` works, `tools: ok`, checksums pass. Pinned-dependency mode (`--install` without reuse) uses lock versions and needs network; physical second-Mac run remains untested |
+| **M6** portable lock | **done (rehearsed)** | package vendors `code/fastfuncstuff`; fresh unzip → `setup.sh --install --reuse-python --python <venv>` installed the FFS wheel into a package-local venv, imports + `ffs_info` work, `tools: ok`, checksums pass, and `verify.sh --replay` reproduced the stats bucket **hash-equal** (`exact=true`, max Δ 0.0) from that venv. Physical second-Mac run remains the only unverified step |
 
 ## Verification commands
 
