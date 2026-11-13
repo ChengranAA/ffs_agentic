@@ -23,7 +23,7 @@ or command that proves it. Update this file whenever a milestone moves.
 | **U1** plan/review | done | Plan produces `proc_sub-*.sh`, design spec and stage flow |
 | **U2** live run/log | done | progress, stage times, cleaned log, cancel, QC table/figures, viewer screenshots, load-to-viewer |
 | **U3** results/provenance | partial | contrast/cluster tables, viewer hand-off, settle/export, provenance, Replay card, **threshold/min-cluster controls**, **Verify package** button; single-subject correction controls still missing |
-| **U4** cohort | partial | matrix, variant list, Validate button with issue codes, persisted include/exclude checkboxes; subject detail drawer still missing |
+| **U4** cohort | **done** | matrix, variant list, Validate button with issue codes, persisted include/exclude checkboxes, expandable subject detail (work dir, stats, variants, issues); planned/missing-output rows show run-pending |
 | **U5** group | **done** | design form (one-sample/two-group), engine selector (3dMEMA/3dttest++, disabled with reason for two-group), correction selector, groups A/B inputs, cluster table with p, viewer sync |
 | **U6** tool cards/polish | not started | — |
 

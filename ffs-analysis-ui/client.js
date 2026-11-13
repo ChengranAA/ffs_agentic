@@ -654,6 +654,7 @@ window.__ModuleLoader__.load({
       const cohort = snap.cohort || snap.group?.cohort || {}
       const subjects = Array.isArray(cohort.subjects) ? cohort.subjects : []
       const checked = new Map((validation?.subjects || []).map((item) => [item.id, item]))
+      const [detail, setDetail] = React.useState(null)
       return h(Card, { title: t('cohortNote'), subtitle: cohort.status || '' },
         h('div', { className: 'ffa-row' },
           h('span', { className: 'ffa-small ffa-muted' },
@@ -678,9 +679,16 @@ window.__ModuleLoader__.load({
             h('tbody', null, subjects.map((subject) => {
               const check = checked.get(subject.id)
               const issues = check?.issues || []
-              return h('tr', { key: subject.id },
+              return h(React.Fragment, { key: subject.id },
+                h('tr', {
+                  onClick: () => setDetail(detail === subject.id ? null : subject.id),
+                  style: { cursor: 'pointer' },
+                  title: 'Show subject details',
+                },
                 h('td', null, h('input', {
                   type: 'checkbox', checked: subject.include !== false,
+                  'aria-label': `include ${subject.id}`,
+                  onClick: (event) => event.stopPropagation(),
                   onChange: (event) => onToggleInclude(subject.subject, event.target.checked),
                 })),
                 h('td', { className: 'ffa-name' }, subject.id),
@@ -691,7 +699,21 @@ window.__ModuleLoader__.load({
                   issues.length
                     ? h('div', { className: 'ffa-small', style: { color: 'var(--dsw-alias-state-error-primary)' } },
                       issues.map((issue) => issue.code).join(', '))
-                    : null))
+                    : null)),
+                detail === subject.id
+                  ? h('tr', { key: 'detail' },
+                    h('td', { colSpan: 5, style: { background: 'var(--dsw-alias-bg-base)', padding: 8 } },
+                      h('div', { className: 'ffa-small' },
+                        h('div', null, h('strong', null, 'work dir '), h('span', { className: 'ffa-mono' }, subject.workDir || '—')),
+                        h('div', null, h('strong', null, 'stats '), h('span', { className: 'ffa-mono' }, subject.stats || '—')),
+                        h('div', { style: { marginTop: 4 } }, h('strong', null, 'variants')),
+                        (subject.variants || []).map((variant) => h('div', { key: variant.id, className: 'ffa-mono ffa-small' },
+                          `${variant.id} · ${variant.status} · ${variant.workDir || '—'} · ${variant.stats || 'no stats'}`)),
+                        check?.issues?.length
+                          ? h('div', { style: { marginTop: 4, color: 'var(--dsw-alias-state-error-primary)' } },
+                            check.issues.map((issue) => `${issue.code}: ${issue.message}`).join(' · '))
+                          : h('div', { className: 'ffa-small ffa-muted', style: { marginTop: 4 } }, 'validation: ok'))))
+                  : null)
             })))
           : h('div', { className: 'ffa-empty' }, 'No subjects discovered under the cohort work root.'))
     }
