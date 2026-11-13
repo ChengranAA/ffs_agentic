@@ -42,6 +42,7 @@ const PLAN_DEFAULTS = {
   task: 'localizer',
   recipe: 'bare_bones',
   noQc: true,
+  device: 'auto',
   workDir: 'work/ds005165/sub-01',
 }
 
@@ -208,6 +209,23 @@ function listArtifacts(workAbs) {
   return artifacts.slice(0, 80)
 }
 
+function listScreenshots(workAbs) {
+  const dir = path.join(workAbs, 'screenshots')
+  if (!existsSync(dir)) return []
+  try {
+    return readdirSync(dir)
+      .filter((name) => /\.(png|jpe?g)$/i.test(name))
+      .slice(0, 8)
+      .map((name) => ({
+        id: `shot.${name}`,
+        label: name.replace(/\.(png|jpe?g)$/i, ''),
+        asset: `screenshots/${name}`,
+      }))
+  } catch {
+    return []
+  }
+}
+
 function listQcFigures(workAbs) {
   const qcDir = path.join(workAbs, 'qc')
   if (!existsSync(qcDir)) return []
@@ -223,6 +241,20 @@ function listQcFigures(workAbs) {
       }))
   } catch {
     return []
+  }
+}
+
+function readQcReview(workAbs) {
+  const file = path.join(workAbs, 'qc', 'qc_review.tsv')
+  if (!existsSync(file)) return null
+  try {
+    const lines = readFileSync(file, 'utf8').split('\n').filter(Boolean)
+    if (!lines.length) return null
+    const columns = lines[0].split('\t')
+    const rows = lines.slice(1).map((line) => line.split('\t')).filter((cells) => cells.length > 1).slice(0, 60)
+    return { path: path.relative(PROJECT_ROOT, file), columns, rows, rowsCount: rows.length }
+  } catch {
+    return null
   }
 }
 
@@ -323,6 +355,31 @@ function ensureRunLoaded() {
   return RUN
 }
 
+function reconcileRunFromLog() {
+  if (!RUN) return RUN
+  if (RUN.status === 'completed' || RUN.status === 'cancelled') return RUN
+  const logRel = RUN.log || (RUN.script ? String(RUN.script).replace(/\.sh$/, '.log') : null)
+  if (!logRel) return RUN
+  const logAbs = path.join(PROJECT_ROOT, logRel)
+  if (!existsSync(logAbs)) return RUN
+  let text = ''
+  try {
+    text = readFileSync(logAbs, 'utf8')
+  } catch {
+    return RUN
+  }
+  if (!/finished after \d+:\d+:\d+ \(\d+s\)/.test(text)) return RUN
+  if (/ffs_autoproc: FAILED/.test(text)) return RUN
+  // A Host reload can mark the run failed while the child keeps running and finishes.
+  RUN.status = 'completed'
+  RUN.finishedAt = RUN.finishedAt || new Date(statSync(logAbs).mtimeMs).toISOString()
+  RUN.error = null
+  RUN.percent = 100
+  RUN.currentStage = null
+  persistRun()
+  return RUN
+}
+
 function isRunActive() {
   const run = ensureRunLoaded()
   return Boolean(run && (run.status === 'running' || run.status === 'stopping'))
@@ -346,6 +403,7 @@ function runView(state) {
   const logMtime = existsSync(logAbs) ? statSync(logAbs).mtimeMs : 0
   const logFresh = logMtime > 0 && logMtime >= scriptMtime
 
+  reconcileRunFromLog()
   const status = run ? run.status : null
   const running = status === 'running' || status === 'stopping'
   const banners = logBanners(logText)
@@ -453,6 +511,8 @@ function buildLiveSnapshot(state) {
   const view = runView(state)
   const artifacts = listArtifacts(workAbs)
   const figures = listQcFigures(workAbs)
+  const review = readQcReview(workAbs)
+  const screenshots = listScreenshots(workAbs)
   const subjectId = `sub-${state.params.subject}`
   const statsArtifact = artifacts.find((artifact) => artifact.kind === 'stats' && !/ffsremlvar/.test(artifact.name) && /stats-reml/.test(artifact.name))
     || artifacts.find((artifact) => artifact.kind === 'stats' && !/ffsremlvar/.test(artifact.name))
@@ -537,7 +597,7 @@ function buildLiveSnapshot(state) {
       root: state.params.bidsDir,
       subject: subjectId,
       session: state.params.session ? `ses-${state.params.session}` : null,
-      device: 'auto',
+      device: state.params.device || 'auto',
       createdAt: state.plannedAt,
     },
     pipeline: {
@@ -561,6 +621,7 @@ function buildLiveSnapshot(state) {
         state.params.task ? `-task ${state.params.task}` : '',
         `-recipe ${state.params.recipe}`,
         state.params.noQc ? '-no_qc' : '',
+        state.params.device && state.params.device !== 'auto' ? `-device ${state.params.device}` : '',
         `-work_dir ${state.params.workDir}`,
         `-out ${state.script}`,
       ].filter(Boolean).join(' '),
@@ -578,11 +639,13 @@ function buildLiveSnapshot(state) {
     },
     artifacts,
     qc: {
-      status: figures.length ? 'figures' : 'none',
+      status: figures.length ? 'ready' : 'none',
       note: figures.length
-        ? 'QC figures from the work directory.'
+        ? `${figures.length} figure(s)${review ? ` · ${review.rowsCount} review row(s)` : ''} from qc/.`
         : 'No QC figures yet. QC runs on CPU on this Mac (the MPS path raises a float64 error).',
       figures,
+      review,
+      screenshots,
     },
     results,
     cohort,
@@ -682,6 +745,12 @@ function snapshotSummary() {
       included: snapshot.cohort?.included ?? 0,
       status: snapshot.cohort?.status ?? null,
     },
+    qc: {
+      figures: Array.isArray(snapshot.qc?.figures) ? snapshot.qc.figures.length : 0,
+      reviewRows: snapshot.qc?.review?.rowsCount ?? 0,
+      reviewColumns: snapshot.qc?.review?.columns?.length ?? 0,
+      screenshots: Array.isArray(snapshot.qc?.screenshots) ? snapshot.qc.screenshots.length : 0,
+    },
     group: {
       status: snapshot.group?.status ?? null,
       analyses: Array.isArray(snapshot.group?.analyses)
@@ -735,6 +804,7 @@ function autoprocArgs(params) {
   if (params.session) args.push('-session', String(params.session))
   if (params.task) args.push('-task', String(params.task))
   if (params.noQc) args.push('-no_qc')
+  if (params.device && params.device !== 'auto') args.push('-device', String(params.device))
   return { args, bidsAbs, workAbs, outAbs }
 }
 
@@ -1798,6 +1868,7 @@ export function apply(ctx) {
         bidsDir: { type: 'string', description: 'BIDS root, project-relative.' },
         workDir: { type: 'string', description: 'Work directory, project-relative.' },
         noQc: { type: 'boolean', description: 'Pass -no_qc (default true on this Mac).' },
+        device: { type: 'string', enum: ['auto', 'cpu', 'mps', 'cuda'], description: 'Compute device for the run (default auto).' },
       },
       required: [],
     },

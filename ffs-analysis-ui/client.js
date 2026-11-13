@@ -528,13 +528,35 @@ window.__ModuleLoader__.load({
     function QcSection({ snap, t }) {
       const qc = snap.qc || {}
       const figures = Array.isArray(qc.figures) ? qc.figures : []
+      const review = qc.review
       return h(Card, { title: t('qcNote'), subtitle: qc.status || '' },
         qc.note ? h('div', { className: 'ffa-small ffa-muted' }, qc.note) : null,
+        review && Array.isArray(review.columns) && review.rows?.length
+          ? h('div', { style: { marginTop: 10 } },
+            h('div', { className: 'ffa-label' }, `${review.path} · ${review.rowsCount} row(s) · ${review.columns.length} columns`),
+            (() => {
+              const preferred = ['label', 'moco.fd_mean', 'moco.fd_max', 'moco.tsnr_median', 'moco.outlier_mean', 'reml.fstat_frac_sig', 'reml.tsnr_gain']
+              const picked = preferred.map((name) => review.columns.indexOf(name)).filter((index) => index >= 0)
+              const indices = picked.length ? picked : review.columns.map((_, index) => index).slice(0, 7)
+              return h('div', { style: { overflowX: 'auto' } },
+                h('table', { className: 'ffa-table' },
+                  h('thead', null, h('tr', null, indices.map((index) => h('th', { key: index }, review.columns[index])))),
+                  h('tbody', null, review.rows.slice(0, 12).map((row, rowIndex) => h('tr', { key: rowIndex },
+                    indices.map((index) => h('td', { key: index, className: 'ffa-mono ffa-small' }, row[index] ?? '')))))))
+            })())
+          : null,
         figures.length
           ? h('div', { style: { display: 'grid', gap: 12, marginTop: 10 } }, figures.map((figure) => h('figure', { key: figure.id || figure.asset, className: 'ffa-figure' },
             h('img', { className: 'ffa-img', src: `${snap.assets?.base || '/ffs-analysis/asset/'}${figure.asset}`, alt: figure.label || 'QC figure', loading: 'lazy' }),
             h('figcaption', null, `${figure.label || ''}${figure.caption ? ` · ${figure.caption}` : ''}`))))
-          : h('div', { className: 'ffa-empty' }, 'No QC figures in the snapshot.'))
+          : h('div', { className: 'ffa-empty' }, 'No QC figures in the snapshot.'),
+        Array.isArray(qc.screenshots) && qc.screenshots.length
+          ? h('div', { style: { marginTop: 12 } },
+            h('div', { className: 'ffa-label' }, 'viewer screenshots'),
+            h('div', { style: { display: 'grid', gap: 12, marginTop: 6 } }, qc.screenshots.map((shot) => h('figure', { key: shot.id || shot.asset, className: 'ffa-figure' },
+              h('img', { className: 'ffa-img', src: `${snap.assets?.base || '/ffs-analysis/project-asset/'}${shot.asset}`, alt: shot.label || 'viewer screenshot', loading: 'lazy' }),
+              h('figcaption', null, shot.label || '')))))
+          : null)
     }
 
     function ResultsSection({ snap, t, onInspect }) {
