@@ -19,7 +19,7 @@
 
 import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, statfsSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -1344,6 +1344,165 @@ echo "doctor: ok"
   }
 }
 
+// ------------------------------------------------------------------ M0: scan / doctor
+function ensureShims() {
+  const shimDir = path.join(PROJECT_ROOT, 'work', 'bin')
+  const pyproject = path.join(PROJECT_ROOT, 'reference', 'fastfuncstuff', 'pyproject.toml')
+  if (!existsSync(pyproject)) return 0
+  mkdirSync(shimDir, { recursive: true })
+  const text = readFileSync(pyproject, 'utf8')
+  const section = /\[project\.scripts\]([\s\S]*?)(?=\n\[)/.exec(text)
+  if (!section) return 0
+  let count = 0
+  for (const line of section[1].split('\n')) {
+    const match = /^\s*(ffs_[a-z0-9_]+)\s*=\s*"([^":]+)(?::[^"]*)?"/.exec(line)
+    if (!match) continue
+    const [, tool, module] = match
+    const file = path.join(shimDir, tool)
+    const body = [
+      '#!/bin/bash',
+      `export PYTHONPATH="${PROJECT_ROOT}/python:${PROJECT_ROOT}/reference/fastfuncstuff\${PYTHONPATH:+:\$PYTHONPATH}"`,
+      `exec "${pythonPath()}" -m ${module} "\$@"`,
+      '',
+    ].join('\n')
+    writeFileSync(file, body)
+    try { chmodSync(file, 0o755) } catch { /* best effort */ }
+    count += 1
+  }
+  return count
+}
+
+function readJsonIf(file) {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+function scanBids(params = {}) {
+  const rootAbs = resolveInside(params.bidsDir || 'data/bids-lite', 'bidsDir')
+  if (!existsSync(rootAbs)) {
+    throw Object.assign(new Error(`BIDS directory not found: ${params.bidsDir || 'data/bids-lite'}`), { code: 'bids-invalid' })
+  }
+  const description = readJsonIf(path.join(rootAbs, 'dataset_description.json'))
+  const subjects = []
+  const warnings = []
+  const entries = readdirSync(rootAbs, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^sub-/.test(entry.name))
+    .sort((a, b) => a.name.localeCompare(b.name))
+  for (const entry of entries) {
+    const subjectDir = path.join(rootAbs, entry.name)
+    const sessionNames = readdirSync(subjectDir, { withFileTypes: true })
+      .filter((item) => item.isDirectory() && /^ses-/.test(item.name))
+      .map((item) => item.name)
+      .sort()
+    const sessions = []
+    for (const sessionName of (sessionNames.length ? sessionNames : [null])) {
+      const base = sessionName ? path.join(subjectDir, sessionName) : subjectDir
+      const funcDir = path.join(base, 'func')
+      const runs = []
+      if (existsSync(funcDir)) {
+        for (const name of readdirSync(funcDir)) {
+          const match = /_(task-[^_]+)_(?:acq-[^_]+_)?(run-([0-9]+))_bold\.nii\.gz$/.exec(name)
+          if (!match) continue
+          const events = path.join(funcDir, name.replace('_bold.nii.gz', '_events.tsv'))
+          const sidecar = readJsonIf(path.join(funcDir, name.replace('.nii.gz', '.json')))
+          runs.push({
+            task: match[1].replace('task-', ''),
+            run: Number(match[3]),
+            bold: path.relative(PROJECT_ROOT, path.join(funcDir, name)),
+            events: existsSync(events) ? path.relative(PROJECT_ROOT, events) : null,
+            tr: sidecar?.RepetitionTime ?? null,
+          })
+          if (!existsSync(events)) warnings.push(`${entry.name}/${sessionName || ''}: missing events for ${name}`)
+        }
+      }
+      runs.sort((a, b) => a.task.localeCompare(b.task) || a.run - b.run)
+      const anatDir = path.join(base, 'anat')
+      const anat = existsSync(anatDir)
+        ? readdirSync(anatDir).filter((name) => /_T1w\.nii\.gz$/.test(name))
+          .map((name) => path.relative(PROJECT_ROOT, path.join(anatDir, name)))
+        : []
+      const fmapDir = path.join(base, 'fmap')
+      const fmapFiles = existsSync(fmapDir) ? readdirSync(fmapDir).length : 0
+      if (!runs.length) warnings.push(`${entry.name}/${sessionName || ''}: no functional runs`)
+      if (!anat.length) warnings.push(`${entry.name}/${sessionName || ''}: no T1w`)
+      sessions.push({ id: sessionName, runs, anat, fmapFiles })
+    }
+    subjects.push({
+      id: entry.name,
+      sessions,
+      runs: sessions.reduce((total, session) => total + session.runs.length, 0),
+    })
+  }
+  const tasks = [...new Set(subjects.flatMap((subject) => subject.sessions.flatMap((session) => session.runs.map((run) => run.task))))].sort()
+  return {
+    schema: 'ffs-bids-scan/1',
+    root: path.relative(PROJECT_ROOT, rootAbs),
+    dataset: description ? { name: description.Name ?? null, bidsVersion: description.BIDSVersion ?? null } : null,
+    subjects,
+    summary: {
+      subjects: subjects.length,
+      sessions: subjects.reduce((total, subject) => total + subject.sessions.length, 0),
+      runs: subjects.reduce((total, subject) => total + subject.runs, 0),
+      tasks,
+      hasFieldmaps: subjects.some((subject) => subject.sessions.some((session) => session.fmapFiles > 0)),
+    },
+    warnings,
+  }
+}
+
+function doctorChecks() {
+  const checks = []
+  const python = pythonPath()
+  checks.push({ id: 'python', label: 'python interpreter', ok: existsSync(python), detail: python, required: true })
+  let importOk = false
+  let torch = null
+  try {
+    torch = execFileSync(python, ['-c', 'import fastfuncstuff, torch;print(torch.__version__)'], {
+      env: ffsEnv(), encoding: 'utf8', timeout: 120000,
+    }).trim()
+    importOk = true
+  } catch (error) {
+    importOk = false
+  }
+  checks.push({
+    id: 'fastfuncstuff', label: 'fastfuncstuff + torch import', ok: importOk,
+    detail: torch ? `torch ${torch}` : 'import failed', required: true,
+  })
+  const shims = ensureShims()
+  checks.push({ id: 'shims', label: 'ffs_* command shims', ok: shims > 0, detail: `${shims} in work/bin`, required: true })
+  for (const tool of ['zstd', '3dMEMA', '3dresample', '3dAutomask', 'Rscript']) {
+    let ok = false
+    let where = 'not found'
+    try {
+      where = execFileSync('which', [tool], { encoding: 'utf8' }).trim() || 'not found'
+      ok = where !== 'not found'
+    } catch { /* missing */ }
+    checks.push({ id: `tool:${tool}`, label: tool, ok, detail: where, required: tool === 'zstd' })
+  }
+  const mplDir = path.join(PROJECT_ROOT, 'work', '.mpl')
+  let mplOk = false
+  try {
+    mkdirSync(mplDir, { recursive: true })
+    const probe = path.join(mplDir, '.write-probe')
+    writeFileSync(probe, 'ok')
+    unlinkSync(probe)
+    mplOk = true
+  } catch { /* not writable */ }
+  checks.push({ id: 'mplconfig', label: 'MPLCONFIGDIR writable', ok: mplOk, detail: mplDir, required: true })
+  try {
+    const stats = statfsSync(PROJECT_ROOT)
+    const freeGb = (stats.bfree * stats.bsize) / 1e9
+    checks.push({ id: 'disk', label: 'free disk', ok: freeGb > 5, detail: `${freeGb.toFixed(1)} GB`, required: true })
+  } catch { /* unsupported */ }
+  const fixture = path.join(PROJECT_ROOT, 'data', 'bids-lite')
+  checks.push({ id: 'fixture', label: 'BIDS-lite fixture', ok: existsSync(fixture), detail: path.relative(PROJECT_ROOT, fixture), required: true })
+  const required = checks.filter((check) => check.required)
+  return { ok: required.every((check) => check.ok), checks }
+}
+
 // ------------------------------------------------------------------ cohort / group
 const COHORT_ROOT = path.join(PROJECT_ROOT, 'work', 'ds005165')
 const GROUP_STATE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-analysis-group.json')
@@ -1681,6 +1840,31 @@ export function apply(ctx) {
   }), 'ffs-analysis: cancel tool')
 
   ctx.effect(() => ctx.tools.register({
+    name: 'ffs_project_scan',
+    description: [
+      'Scan a BIDS root and the FFS environment: subjects, sessions, runs, events, T1w and',
+      'fieldmaps, plus doctor checks (python, fastfuncstuff import, command shims, zstd,',
+      'AFNI/R, MPLCONFIGDIR, disk). Defaults to the BIDS-lite fixture.',
+    ].join('\n'),
+    parameters: {
+      type: 'object',
+      properties: {
+        bidsDir: { type: 'string', description: 'BIDS root, project-relative (default data/bids-lite).' },
+      },
+      required: [],
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    },
+    async execute(args) {
+      const bids = scanBids(args || {})
+      const doctor = doctorChecks()
+      return JSON.stringify({ ok: true, bids, doctor }, null, 1)
+    },
+  }), 'ffs-analysis: scan tool')
+
+  ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_group',
     description: [
       'Run a one-sample group analysis with AFNI 3dMEMA across every completed subject',
@@ -1823,6 +2007,16 @@ export function apply(ctx) {
         }
         try {
           writeJson(res, 200, cancelRun())
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'scan') {
+        try {
+          const body = req.method === 'POST' ? await readJsonBody(req) : {}
+          writeJson(res, 200, { ok: true, bids: scanBids(body), doctor: doctorChecks() })
         } catch (error) {
           routeError(res, error)
         }

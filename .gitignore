@@ -11,3 +11,7 @@ data/real/
 work/
 
 exports/
+
+# generated M0 fixture (rebuild with scripts/build_bids_fixture.py)
+data/bids-lite/
+__pycache__/
