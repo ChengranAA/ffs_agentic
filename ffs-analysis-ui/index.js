@@ -506,6 +506,19 @@ function ensureResults(workAbs, statsAbs) {
   }
 }
 
+function datasetLabel(bidsDir) {
+  try {
+    const abs = resolveInside(bidsDir, 'bidsDir')
+    const description = readJsonIf(path.join(abs, 'dataset_description.json'))
+    if (description && description.Name) {
+      return description.Name === 'FFS BIDS-lite fixture' ? 'BIDS-lite fixture' : description.Name
+    }
+    return path.basename(abs)
+  } catch {
+    return String(bidsDir || 'dataset')
+  }
+}
+
 function buildLiveSnapshot(state) {
   const workAbs = resolveInside(state.workDir, 'work dir')
   const view = runView(state)
@@ -579,7 +592,7 @@ function buildLiveSnapshot(state) {
   const settledRecord = readSettled()
   const cohort = discoverCohort(cohortRootForState(state))
   const groupAnalyses = readGroupState().analyses
-    .filter((item) => (item.cohortRoot || 'work/ds005165') === cohort.root)
+    .filter((item) => groupCohortRoot(item) === cohort.root)
     .map(groupSummaryRecord)
   const groupStatus = groupAnalyses.length
     ? 'ready'
@@ -594,8 +607,8 @@ function buildLiveSnapshot(state) {
     projectRoot: PROJECT_ROOT,
     assets: { base: `${ROUTE}/project-asset/` },
     project: {
-      name: `ds005165 ${subjectId}`,
-      dataset: 'BIDS · ds005165 (BOLD Moments)',
+      name: `${datasetLabel(state.params.bidsDir)} ${subjectId}`,
+      dataset: `BIDS · ${datasetLabel(state.params.bidsDir)}`,
       root: state.params.bidsDir,
       subject: subjectId,
       session: state.params.session ? `ses-${state.params.session}` : null,
@@ -1107,8 +1120,8 @@ function settleProject() {
     id: `settle-${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}`,
     at: new Date().toISOString(),
     project: {
-      name: `ds005165 sub-${state.params.subject}`,
-      dataset: 'BIDS · ds005165 (BOLD Moments)',
+      name: `${datasetLabel(state.params.bidsDir)} sub-${state.params.subject}`,
+      dataset: `BIDS · ${datasetLabel(state.params.bidsDir)}`,
       bidsDir: state.params.bidsDir,
       subject: state.params.subject,
       session: state.params.session,
@@ -1667,6 +1680,12 @@ function discoverCohort(workRootAbs) {
   return cohort
 }
 
+function groupCohortRoot(analysis) {
+  if (analysis.cohortRoot) return analysis.cohortRoot
+  // Legacy records predate the field; the group work dir sits under its cohort root.
+  return analysis.workDir ? path.dirname(analysis.workDir) : 'work/ds005165'
+}
+
 function readGroupState() {
   try {
     if (existsSync(GROUP_STATE_FILE)) {
@@ -2130,11 +2149,12 @@ function runGroupAnalysis(params = {}) {
     bucket: path.relative(PROJECT_ROOT, prefix),
     mask: mask ? path.relative(PROJECT_ROOT, mask) : null,
     space: 'native-common-grid',
+    cohortRoot: path.relative(PROJECT_ROOT, rootAbs),
     mean: firstMean || null,
   }
   const state = readGroupState()
   const rootRel = path.relative(PROJECT_ROOT, rootAbs)
-  state.analyses = state.analyses.filter((item) => !(item.id === id && (item.cohortRoot || 'work/ds005165') === rootRel)).concat(record)
+  state.analyses = state.analyses.filter((item) => !(item.id === id && groupCohortRoot(item) === rootRel)).concat(record)
   writeGroupState(state)
   return groupSummaryRecord(record)
 }
