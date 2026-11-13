@@ -15,3 +15,6 @@ exports/
 # generated M0 fixture (rebuild with scripts/build_bids_fixture.py)
 data/bids-lite/
 __pycache__/
+
+# generated demo surface BIDS wrapper (scripts/create it from data/demo)
+data/bids-demo/

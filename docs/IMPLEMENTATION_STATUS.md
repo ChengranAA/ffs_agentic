@@ -13,7 +13,7 @@ or command that proves it. Update this file whenever a milestone moves.
 | **M3 — Analysis** | partial | stats buckets loaded with sub-brick/threshold/colormap via viewer hand-off; results inspector (peaks/clusters); settle/export package. Missing: threshold/correction controls, screenshots |
 | **M4 — Cohort** | **done (backend + package); UI partial** | fixture cohort of 3 subjects on one 42³ grid; `ffs_cohort` list/validate/export; `subjects/` + `cohort.yaml` + `subject.yaml` (canonical + hand-edited `sub-002-edited` variant); bounded-parallel `run.sh` reran all three and revalidated; negative cohort reports `grid-mismatch` and `missing-output` and export refuses. UI: matrix/variants/validate button; include/exclude + subject detail still open (U4) |
 | **M5 — Group level** | **done (adapters + package)** | one-sample 3dMEMA and two-group 3dttest++ on the 4-subject fixture; common-grid resampling; permutation/max-cluster correction adapter (`scripts/group_permutation.py`) and cluster-size threshold; `group.yaml` + per-analysis bucket/correction/clusters + group METHODS in the cohort package; methods lint clean. Covariates and true 3dClustSim remain a follow-on |
-| **M6 — Surface + interop + replay** | **partial** | `ffs_tool_run` (argv-only, whitelist, provenance + output hashes); `ffs_replay` replays a frozen script in a fresh work dir and compares the stats bucket (exact hash false from REML FP noise, tolerance match true: max Δ 2.5e-2, 0 voxels over tolerance, corr 0.999999997); portable `lock.json`/`setup.sh`/`env.sh` in single-subject and cohort packages with `setup.sh` passing; methods lint enforced on exports. Missing: surface GLM on fsaverage, AFNI/ANTs warp input, zip export, optional viewer state |
+| **M6 — Surface + interop + replay** | **done except exact-hash replay** | surface GLM on **fsaverage** (demo phantom): stage10s sampling + stage12s ffs_reml lh/rh, figure `surface/screenshot.png`, viewer state; `ffs_tool_run` argv runner; `ffs_replay` (canonical hash + tolerance; exact false from REML numerical noise, 0 voxels over tolerance, corr 0.999999997); AFNI/ANTs interop plan inputs (`-ref_file`/`-ref_file_anat`/`-ref_transforms` verified in the script); portable lock/setup/env; deterministic zip; optional viewer state in the package. Caveat: replay is numerically equivalent, not byte/hash-equal |
 
 ## Analysis UI milestones
 
@@ -35,7 +35,7 @@ or command that proves it. Update this file whenever a milestone moves.
 | **M3b** figures/verification/UI card | partial | settle + export card exist; figures, clean-shell rerun and verification modes missing |
 | **M4** cohort package | **done** | `exports/ffs_cohort_bids-lite_20261113-125046` (28 files): subjects/, cohort.yaml, subject.yaml (incl. variant), run.sh, validate.py, METHODS/STEPS, manifest; `MAX_PARALLEL=2 ./run.sh` reran and `validate.py` passed |
 | **M5** group package | **done** | `exports/ffs_cohort_bids-lite_20261113-130318`: group/group.yaml, per-analysis group.yaml + frozen bucket + mask + correction.json + clusters.csv, group/results.csv, group/METHODS.md; manifest methodsLint both clean |
-| **M6** portable lock | **partial** | lock.json (host/python/packages/tools), setup.sh lock check, env.sh in `ffs_analysis_01_20261113-131330` and `ffs_cohort_bids-lite_20261113-131333`; setup passes on this Mac. Second-Mac repro and zip export not yet tested |
+| **M6** portable lock | **partial** | lock.json/setup.sh/env.sh in single-subject and cohort packages; surface package `ffs_analysis_001_20261113-140402.zip` (3.7 MB, 25 files) includes surface GIFTI, figure and viewer state; setup passes on this Mac. Second-Mac repro still untested |
 
 ## Verification commands
 
@@ -52,6 +52,8 @@ ffs_group model=two-group groups='{"a":["001","002"],"b":["003","004"]}' correct
                                                             # M5: engine + correction + package
 ffs_tool_run argv='["ffs_info","-nv",<bucket>]'             # M6: escape hatch + provenance
 ffs_replay workDir=work/bids-lite/sub-004                   # M6: hash/tolerance replay
+ffs_analysis_plan ... surfaceTarget='["fsaverage"]' surfaceGlm=true fsSubject=data/demo/subject
+                                                            # M6: surface GLM
 bash exports/<pkg>/setup.sh                                 # M6: lock check
 ```
 

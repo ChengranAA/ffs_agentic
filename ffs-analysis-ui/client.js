@@ -564,6 +564,16 @@ window.__ModuleLoader__.load({
             h('div', { style: { display: 'grid', gap: 12, marginTop: 6 } }, qc.screenshots.map((shot) => h('figure', { key: shot.id || shot.asset, className: 'ffa-figure' },
               h('img', { className: 'ffa-img', src: `${snap.assets?.base || '/ffs-analysis/project-asset/'}${shot.asset}`, alt: shot.label || 'viewer screenshot', loading: 'lazy' }),
               h('figcaption', null, shot.label || '')))))
+          : null,
+        snap.surface && snap.surface.available
+          ? h('div', { style: { marginTop: 12 } },
+            h('div', { className: 'ffa-label' }, 'surface GLM · fsaverage'),
+            snap.surface.screenshot
+              ? h('figure', { className: 'ffa-figure' },
+                h('img', { className: 'ffa-img', src: `${snap.assets?.base || '/ffs-analysis/project-asset/'}${snap.surface.screenshot}`, alt: 'fsaverage surface GLM', loading: 'lazy' }))
+              : null,
+            h('div', { className: 'ffa-small ffa-muted' },
+              `${(snap.surface.hemis || []).join(', ')} · ${(snap.surface.labels || []).join(', ')} · ${(snap.surface.files || []).length} GIFTI`))
           : null)
     }
 

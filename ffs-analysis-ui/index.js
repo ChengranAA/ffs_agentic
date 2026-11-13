@@ -43,6 +43,15 @@ const PLAN_DEFAULTS = {
   recipe: 'bare_bones',
   noQc: true,
   device: 'auto',
+  anat: null,
+  fsSubject: null,
+  surfaceTarget: [],
+  surfaceGlm: false,
+  surfaceQc: false,
+  surfaceBlur: null,
+  refFile: null,
+  refTransforms: [],
+  refFileAnat: null,
   workDir: 'work/ds005165/sub-01',
 }
 
@@ -207,6 +216,26 @@ function listArtifacts(workAbs) {
   const rank = { script: 0, log: 1, design: 2, stats: 3, params: 4, mask: 5, func: 6, other: 7 }
   artifacts.sort((a, b) => (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9) || a.name.localeCompare(b.name))
   return artifacts.slice(0, 80)
+}
+
+function surfaceSummary(workAbs) {
+  try {
+    const files = readdirSync(workAbs)
+      .filter((name) => /^stage12s\.stats-reml\..*\.func\.gii$/.test(name) && !/ffsremlvar/.test(name))
+    if (!files.length) return null
+    const sidecar = readJsonIf(path.join(workAbs, 'stage12s.json'))
+    const labels = sidecar && Array.isArray(sidecar.SubBricks) ? sidecar.SubBricks : []
+    const shot = path.join(workAbs, 'screenshots', 'surface-fsaverage.png')
+    return {
+      available: true,
+      files: files.map((name) => path.relative(PROJECT_ROOT, path.join(workAbs, name))),
+      hemis: [...new Set(files.map((name) => (/\.lh\./.test(name) ? 'lh' : 'rh')))],
+      labels,
+      screenshot: existsSync(shot) ? 'screenshots/surface-fsaverage.png' : null,
+    }
+  } catch {
+    return null
+  }
 }
 
 function listScreenshots(workAbs) {
@@ -526,6 +555,7 @@ function buildLiveSnapshot(state) {
   const figures = listQcFigures(workAbs)
   const review = readQcReview(workAbs)
   const screenshots = listScreenshots(workAbs)
+  const surface = surfaceSummary(workAbs)
   const subjectId = `sub-${state.params.subject}`
   const statsArtifact = artifacts.find((artifact) => artifact.kind === 'stats' && !/ffsremlvar/.test(artifact.name) && /stats-reml/.test(artifact.name))
     || artifacts.find((artifact) => artifact.kind === 'stats' && !/ffsremlvar/.test(artifact.name))
@@ -653,6 +683,7 @@ function buildLiveSnapshot(state) {
       error: view.error,
     },
     artifacts,
+    surface,
     qc: {
       status: figures.length ? 'ready' : 'none',
       note: figures.length
@@ -760,6 +791,11 @@ function snapshotSummary() {
       included: snapshot.cohort?.included ?? 0,
       status: snapshot.cohort?.status ?? null,
     },
+    surface: snapshot.surface ? {
+      hemis: snapshot.surface.hemis,
+      labels: snapshot.surface.labels,
+      screenshot: snapshot.surface.screenshot,
+    } : null,
     qc: {
       figures: Array.isArray(snapshot.qc?.figures) ? snapshot.qc.figures.length : 0,
       reviewRows: snapshot.qc?.review?.rowsCount ?? 0,
@@ -820,6 +856,26 @@ function autoprocArgs(params) {
   if (params.task) args.push('-task', String(params.task))
   if (params.noQc) args.push('-no_qc')
   if (params.device && params.device !== 'auto') args.push('-device', String(params.device))
+  if (params.anat) args.push('-anat', resolveInside(params.anat, 'anat'))
+  if (params.fsSubject) args.push('-fs_subject', resolveInside(params.fsSubject, 'fsSubject'))
+  const surfaceTargets = Array.isArray(params.surfaceTarget)
+    ? params.surfaceTarget
+    : (params.surfaceTarget ? String(params.surfaceTarget).split(/[\s,]+/).filter(Boolean) : [])
+  if (surfaceTargets.length) {
+    args.push('-surface_target')
+    for (const target of surfaceTargets) {
+      args.push(target === 'native' || !target.includes('/') ? target : resolveInside(target, 'surface target'))
+    }
+  }
+  if (params.surfaceGlm) args.push('-surface_glm')
+  if (params.surfaceQc) args.push('-surface_qc')
+  if (params.surfaceBlur) args.push('-surface_glm_blur', String(params.surfaceBlur))
+  if (params.refFile) args.push('-ref_file', resolveInside(params.refFile, 'refFile'))
+  if (params.refFileAnat) args.push('-ref_file_anat', resolveInside(params.refFileAnat, 'refFileAnat'))
+  const transforms = Array.isArray(params.refTransforms)
+    ? params.refTransforms
+    : (params.refTransforms ? String(params.refTransforms).split(/[\s,]+/).filter(Boolean) : [])
+  if (transforms.length) args.push('-ref_transforms', ...transforms.map((item) => resolveInside(item, 'ref transform')))
   return { args, bidsAbs, workAbs, outAbs }
 }
 
@@ -1242,9 +1298,9 @@ descriptive: no correction for multiple comparisons has been applied in this pro
 
 ## Limitations
 
-Fixed-effects (single-subject) analysis; no group level, no multiple-comparison correction,
-no surface analysis in this export. The frozen script embeds absolute paths from the
-machine it ran on.
+Fixed-effects (single-subject) analysis; no group level, no multiple-comparison correction.
+When surface/ is present it holds the fsaverage surface GLM buckets and screenshot.
+The frozen script embeds absolute paths from the machine it ran on.
 `
 }
 
@@ -1290,6 +1346,18 @@ function renderManifest(settled, extras = {}) {
     artifacts: settled.artifacts,
     ...extras,
   }, null, 2)
+}
+
+function zipPackage(dir) {
+  const zipPath = `${dir}.zip`
+  try {
+    execFileSync(pythonPath(), [path.join(PKG_DIR, 'scripts', 'zipdir.py'), dir, zipPath], {
+      env: ffsEnv(), encoding: 'utf8', timeout: 300000,
+    })
+    return { path: path.relative(PROJECT_ROOT, zipPath), sha256: sha256File(zipPath) }
+  } catch (error) {
+    return { error: String(error && error.message) }
+  }
 }
 
 function buildLock() {
@@ -1369,6 +1437,37 @@ function exportPackage() {
     for (const name of readdirSync(stimuliDir)) copyFileSync(path.join(stimuliDir, name), path.join(dir, 'frozen', 'stimuli', name))
   }
 
+  const surfaceNames = readdirSync(workAbs).filter((name) =>
+    /^stage12s\.stats-reml\..*\.(func|shape)\.gii$/.test(name) && !/ffsremlvar/.test(name))
+  let surfaceLabels = []
+  if (surfaceNames.length) {
+    const surfaceDir = path.join(dir, 'surface')
+    mkdirSync(surfaceDir, { recursive: true })
+    for (const name of surfaceNames) copyFileSync(path.join(workAbs, name), path.join(surfaceDir, name))
+    for (const name of readdirSync(workAbs).filter((item) => /^stage10s\.surf\.allruns\..*mask\.shape\.gii$/.test(item))) {
+      copyFileSync(path.join(workAbs, name), path.join(surfaceDir, name))
+    }
+    const sidecar = path.join(workAbs, 'stage12s.json')
+    if (existsSync(sidecar)) {
+      copyFileSync(sidecar, path.join(surfaceDir, 'stage12s.json'))
+      try { surfaceLabels = JSON.parse(readFileSync(sidecar, 'utf8')).SubBricks || [] } catch { surfaceLabels = [] }
+    }
+    const shot = path.join(workAbs, 'screenshots', 'surface-fsaverage.png')
+    if (existsSync(shot)) copyFileSync(shot, path.join(surfaceDir, 'screenshot.png'))
+  }
+
+  let viewerIncluded = null
+  const viewerState = path.join(PROJECT_ROOT, '.ffs-viewer')
+  if (existsSync(path.join(viewerState, 'viewer.ffs'))) {
+    const viewerDir = path.join(dir, 'viewer')
+    mkdirSync(viewerDir, { recursive: true })
+    copyFileSync(path.join(viewerState, 'viewer.ffs'), path.join(viewerDir, 'viewer.ffs'))
+    if (existsSync(path.join(viewerState, 'workspace.json'))) {
+      copyFileSync(path.join(viewerState, 'workspace.json'), path.join(viewerDir, 'workspace.json'))
+    }
+    viewerIncluded = { script: 'viewer/viewer.ffs', workspace: 'viewer/workspace.json' }
+  }
+
   const results = ensureResults(workAbs, resolveInside(settled.artifacts.find((a) => a.kind === 'stats' && !/ffsremlvar/.test(a.name))?.path || scriptSrc, 'stats'))
   const contrastRows = [['contrast', 'subBrick', 'peakT', 'i', 'j', 'k', 'x_mm', 'y_mm', 'z_mm']]
   const clusterRows = [['contrast', 'voxels', 'peakT', 'i', 'j', 'k', 'x_mm', 'y_mm', 'z_mm']]
@@ -1406,7 +1505,13 @@ edit \`env.sh\` to reproduce elsewhere. Group level, multiple-comparison correct
 surface outputs are not part of this export.
 `)
   writeFileSync(path.join(dir, 'STEPS.md'), renderSteps(settled))
-  const methodsText = renderMethods(settled)
+  let methodsText = renderMethods(settled)
+  if (surfaceNames.length) {
+    methodsText += `\n## Surface analysis\n\nThe same task model was fitted on the **fsaverage** cortical surface ` +
+      `(stage10s surface sampling, stage12s ffs_reml), hemispheres lh/rh, with the surface GLM ` +
+      `sharing the design spec and censoring of the volume fit. Buckets: ${surfaceNames.join(', ')}. ` +
+      `Labels: ${surfaceLabels.join(', ') || 'see stage12s.json'}.\n`
+  }
   writeFileSync(path.join(dir, 'METHODS.md'), methodsText)
   const methodsLint = lintMethods(methodsText, ['Methods', 'Subjects'])
   if (!methodsLint.ok) throw Object.assign(new Error(`methods lint failed: ${methodsLint.issues.join('; ')}`), { code: 'methods-lint' })
@@ -1479,6 +1584,8 @@ echo "doctor: ok"
   writeFileSync(path.join(dir, 'manifest.json'), renderManifest(settled, {
     lock: { path: 'lock.json', sha256: sha256File(path.join(dir, 'lock.json')) },
     methodsLint,
+    surface: surfaceNames.length ? { files: surfaceNames, labels: surfaceLabels } : null,
+    viewer: viewerIncluded,
   }))
 
   const checksumLines = []
@@ -1492,8 +1599,10 @@ echo "doctor: ok"
   walk(dir)
   writeFileSync(path.join(dir, 'checksums.sha256'), `${checksumLines.join('\n')}\n`)
 
+  const zip = zipPackage(dir)
   const record = writeSettled({ ...settled, exportPath: path.relative(PROJECT_ROOT, dir), exportedAt: new Date().toISOString() })
   return {
+    zip,
     ok: true,
     path: path.relative(PROJECT_ROOT, dir),
     files: checksumLines.length + 1,
@@ -2250,6 +2359,7 @@ export MPLCONFIGDIR="\${MPLCONFIGDIR:-${PROJECT_ROOT}/work/.mpl}"
   return {
     ok: true,
     dir: path.relative(PROJECT_ROOT, dir),
+    zip: zipPackage(dir),
     subjects: cohort.subjects.length,
     files: fileCount + 1,
     validation,
@@ -2721,6 +2831,15 @@ export function apply(ctx) {
         workDir: { type: 'string', description: 'Work directory, project-relative.' },
         noQc: { type: 'boolean', description: 'Pass -no_qc (default true on this Mac).' },
         device: { type: 'string', enum: ['auto', 'cpu', 'mps', 'cuda'], description: 'Compute device for the run (default auto).' },
+        anat: { type: 'string', description: 'Explicit anatomical image (project-relative).' },
+        fsSubject: { type: 'string', description: 'FreeSurfer subject directory (surf/…; enables surface sampling).' },
+        surfaceTarget: { type: 'array', items: { type: 'string' }, description: 'native or FreeSurfer-format target mesh path/name.' },
+        surfaceGlm: { type: 'boolean', description: 'Fit the GLM on every surface target (stage12s).' },
+        surfaceQc: { type: 'boolean', description: 'Write surface QC maps.' },
+        surfaceBlur: { type: 'number', description: 'Surface GLM smoothing FWHM (mm).' },
+        refFile: { type: 'string', description: 'AFNI/ANTs reference EPI image for interop.' },
+        refTransforms: { type: 'array', items: { type: 'string' }, description: 'Reference-to-anat matrices/warps in nwarp order.' },
+        refFileAnat: { type: 'string', description: 'Anat that -ref_file transforms land in.' },
       },
       required: [],
     },
