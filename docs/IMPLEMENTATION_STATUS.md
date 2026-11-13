@@ -25,7 +25,7 @@ or command that proves it. Update this file whenever a milestone moves.
 | **U3** results/provenance | **done** | contrasts/clusters, viewer hand-off with crosshair, threshold/min-cluster controls, settle/export, replay card, verify package button; correction controls were not part of U3 |
 | **U4** cohort | **done** | matrix, variant list, Validate button with issue codes, persisted include/exclude checkboxes, expandable subject detail (work dir, stats, variants, issues); planned/missing-output rows show run-pending |
 | **U5** group | **done** | design form (one-sample/two-group), engine selector (3dMEMA/3dttest++, disabled with reason for two-group), correction selector, groups A/B inputs, cluster table with p, viewer sync |
-| **U6** tool cards/polish | **partial** | Settings section (paths, default threshold/min cluster), tab semantics (`role=tablist/tab`, `aria-selected`), labelled inputs, replay/verify cards; conversation tool cards and turn-tail integration still missing |
+| **U6** tool cards/polish | **partial** | Settings section, tab semantics (`role=tablist/tab`, `aria-selected`), labelled inputs, replay/verify cards, and **`presentCall` tool cards for all 16 analysis tools** (title/kind/rawInput); turn-tail and localisation of the new literals still missing |
 
 ## Reproducible package milestones
 

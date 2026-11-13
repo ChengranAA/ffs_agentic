@@ -2961,6 +2961,7 @@ function routeError(res, error) {
 export function apply(ctx) {
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_snapshot',
+    presentCall: (args) => ({ card: 'generic', kind: 'read', title: 'FFS analysis snapshot', rawInput: args }),
     description: [
       'Read the FFS analysis inspection tab snapshot. Returns the source (fixture or live),',
       'pipeline status/progress/current stage, artifact count, cohort and group counts.',
@@ -2978,6 +2979,7 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_plan',
+    presentCall: (args) => ({ card: 'generic', kind: 'write', title: 'FFS pipeline plan', rawInput: args }),
     description: [
       'Generate an ffs_autoproc plan (script + design specs, no execution) for the analysis',
       'tab. Defaults to the ds005165 sub-01 localizer subset already in this checkout.',
@@ -3017,6 +3019,7 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_run',
+    presentCall: (args) => ({ card: 'generic', kind: 'write', title: 'FFS pipeline run', rawInput: args }),
     description: [
       'Execute the current analysis plan: run the generated ffs script as one managed child',
       'process, stream its output to the script log, and make the tab show live stage progress.',
@@ -3033,6 +3036,7 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_resume',
+    presentCall: (args) => ({ card: 'generic', kind: 'write', title: 'FFS resume run', rawInput: args }),
     description: 'Resume an interrupted/stopped analysis run: existing stage outputs are skipped.',
     parameters: { type: 'object', properties: {}, required: [] },
     output: {
@@ -3046,6 +3050,7 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_cancel',
+    presentCall: (args) => ({ card: 'generic', kind: 'other', title: 'FFS cancel run', rawInput: args }),
     description: 'Stop the analysis run currently in progress (process group signal).',
     parameters: { type: 'object', properties: {}, required: [] },
     output: {
@@ -3059,6 +3064,7 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_cohort',
+    presentCall: (args) => ({ card: 'generic', kind: 'write', title: 'FFS cohort', rawInput: args }),
     description: [
       'List or validate the cohort beside the current subject work dir: per-subject stats,',
       'design/stimuli presence and grid agreement (missing-output and grid-mismatch fail',
@@ -3103,6 +3109,7 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_project_scan',
+    presentCall: (args) => ({ card: 'generic', kind: 'read', title: 'FFS project scan', rawInput: args }),
     description: [
       'Scan a BIDS root and the FFS environment: subjects, sessions, runs, events, T1w and',
       'fieldmaps, plus doctor checks (python, fastfuncstuff import, command shims, zstd,',
@@ -3128,6 +3135,7 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_results',
+    presentCall: (args) => ({ card: 'generic', kind: 'write', title: 'FFS result controls', rawInput: args }),
     description: [
       'Recompute the first-level results table with a different cluster-forming threshold or',
       'minimum cluster size, persist the view in the project state and return the summary.',
@@ -3158,6 +3166,7 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_tool_run',
+    presentCall: (args) => ({ card: 'generic', kind: 'write', title: 'FFS tool run', rawInput: args }),
     description: [
       'Run one validated FFS/AFNI command as an argv array (never a shell line), inside the',
       'workspace, with recorded provenance and hashes of expected outputs. Allowed tools:',
@@ -3191,6 +3200,7 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_replay',
+    presentCall: (args) => ({ card: 'generic', kind: 'write', title: 'FFS replay', rawInput: args }),
     description: [
       'Replay a frozen analysis pipeline in a fresh work dir and compare one artifact by',
       'canonical hash (NIfTI: shape+affine+voxel data). Returns match, hashes and the log tail.',
@@ -3248,6 +3258,7 @@ export function apply(ctx) {
   }
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_group',
+    presentCall: (args) => ({ card: 'generic', kind: 'write', title: 'FFS group analysis', rawInput: args }),
     description: [
       'Run a group analysis across the active cohort: one-sample 3dMEMA (Coef+Tstat pairs) or',
       'two-group 3dttest++ (group A vs B on subject Coef maps), optionally with cluster-size or',
@@ -3263,6 +3274,7 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_group',
+    presentCall: (args) => ({ card: 'generic', kind: 'write', title: 'FFS group analysis', rawInput: args }),
     description: [
       'Alias of ffs_analysis_group: one-sample 3dMEMA or two-group 3dttest++ over the active',
       'cohort, with optional cluster/permutation correction.',
@@ -3277,6 +3289,7 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_verify',
+    presentCall: (args) => ({ card: 'generic', kind: 'read', title: 'FFS verify package', rawInput: args }),
     description: [
       'Verify an exported package: check every checksum, and optionally rerun the frozen',
       'pipeline (verify.sh --replay) and compare the stats bucket numerically.',
@@ -3298,6 +3311,7 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_settle',
+    presentCall: (args) => ({ card: 'generic', kind: 'write', title: 'FFS settle', rawInput: args }),
     description: [
       'Freeze the completed analysis into a settled record: plan, run times, artifacts with',
       'hashes, result summary and software versions. Required before export.',
@@ -3315,6 +3329,7 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_export',
+    presentCall: (args) => ({ card: 'generic', kind: 'write', title: 'FFS export package', rawInput: args }),
     description: [
       'Build the reproducible analysis package from the settled analysis: frozen script,',
       'design, stimuli, run/doctor/env scripts, STEPS.md, METHODS.md, methods.yaml, citations,',
@@ -3332,6 +3347,7 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_show',
+    presentCall: (args) => ({ card: 'generic', kind: 'other', title: 'FFS show tab', rawInput: args }),
     description: 'Reveal the FFS analysis inspection tab in the right sidebar.',
     parameters: { type: 'object', properties: {}, required: [] },
     output: {
