@@ -1460,19 +1460,26 @@ set -euo pipefail
 here="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 install=0
 reuse=0
-for arg in "$@"; do
-  case "$arg" in
+python_bin=python3
+while [ "$#" -gt 0 ]; do
+  case "$1" in
     --install) install=1 ;;
     --reuse-python) reuse=1 ;;
-    *) echo "unknown option: $arg" >&2; exit 2 ;;
+    --python) shift; python_bin="$1" ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
+  shift
 done
 if [ "$install" = "1" ]; then
   if [ ! -d "$here/code/fastfuncstuff" ]; then echo "vendored FFS source missing (code/fastfuncstuff)" >&2; exit 1; fi
+  if [ ! -x "$python_bin" ] && ! command -v "$python_bin" >/dev/null 2>&1; then echo "python not found: $python_bin" >&2; exit 1; fi
   if [ "$reuse" = "1" ]; then
-    python3 -m venv --system-site-packages "$here/.venv"
+    "$python_bin" -m venv --system-site-packages "$here/.venv"
+    base_site="$("$python_bin" -c 'import site; print(site.getsitepackages()[0])')"
+    site_dir="$("$here/.venv/bin/python" -c 'import site; print(site.getsitepackages()[0])')"
+    printf '%s\n' "$base_site" > "$site_dir/_base.pth"
   else
-    python3 -m venv "$here/.venv"
+    "$python_bin" -m venv "$here/.venv"
   fi
   "$here/.venv/bin/python" -m pip install --upgrade pip setuptools wheel
   if [ "$reuse" = "0" ]; then
