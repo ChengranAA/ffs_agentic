@@ -22,7 +22,7 @@ or command that proves it. Update this file whenever a milestone moves.
 | **U0** shell + artifacts | done | right-sidebar tab, fixture fallback, artifact list |
 | **U1** plan/review | done | Plan produces `proc_sub-*.sh`, design spec and stage flow |
 | **U2** live run/log | done | progress, stage times, cleaned log, cancel, QC table/figures, viewer screenshots, load-to-viewer |
-| **U3** results/provenance | partial | contrast/cluster tables, viewer hand-off, settle/export, provenance, Replay card, **threshold/min-cluster controls**; single-subject correction controls still missing |
+| **U3** results/provenance | partial | contrast/cluster tables, viewer hand-off, settle/export, provenance, Replay card, **threshold/min-cluster controls**, **Verify package** button; single-subject correction controls still missing |
 | **U4** cohort | partial | matrix, variant list, Validate button with issue codes, persisted include/exclude checkboxes; subject detail drawer still missing |
 | **U5** group | **done** | design form (one-sample/two-group), engine selector (3dMEMA/3dttest++, disabled with reason for two-group), correction selector, groups A/B inputs, cluster table with p, viewer sync |
 | **U6** tool cards/polish | not started | — |
@@ -32,7 +32,7 @@ or command that proves it. Update this file whenever a milestone moves.
 | Milestone | Status | Evidence |
 |---|---|---|
 | **M3a** settle/export skeleton | done | `exports/ffs_analysis_01_20261112-221452` (16 files, checksums verified) |
-| **M3b** figures/verification/UI card | partial | settle + export card exist; figures, clean-shell rerun and verification modes missing |
+| **M3b** figures/verification/UI card | **partial** | package includes `figures/` (surface/QC screenshots), frozen stats, `verify.sh` (checksums + optional `--replay`), bundled hash/compare helpers, `ffs_analysis_verify` tool + Verify button; checksum verification passes (29 files). Full clean-shell package replay still to run |
 | **M4** cohort package | **done** | `exports/ffs_cohort_bids-lite_20261113-125046` (28 files): subjects/, cohort.yaml, subject.yaml (incl. variant), run.sh, validate.py, METHODS/STEPS, manifest; `MAX_PARALLEL=2 ./run.sh` reran and `validate.py` passed |
 | **M5** group package | **done** | `exports/ffs_cohort_bids-lite_20261113-130318`: group/group.yaml, per-analysis group.yaml + frozen bucket + mask + correction.json + clusters.csv, group/results.csv, group/METHODS.md; manifest methodsLint both clean |
 | **M6** portable lock | **partial** | lock.json/setup.sh/env.sh in single-subject and cohort packages; surface package `ffs_analysis_001_20261113-140402.zip` (3.7 MB, 25 files) includes surface GIFTI, figure and viewer state; setup passes on this Mac. Second-Mac repro still untested |
@@ -51,6 +51,8 @@ ffs_cohort export                                          # M4: subjects/ + coh
 ffs_analysis_results threshold=2.5 minCluster=5           # M3: result controls
 ffs_cohort include workRoot=work/bids-lite subject=004 include=false
 ffs_analysis_resume                                        # M2: resume
+ffs_analysis_verify dir=exports/<pkg>                      # REPRO M3b: checksums
+bash exports/<pkg>/verify.sh [--replay]                     # REPRO M3b: full verification
 ffs_group model=two-group groups='{"a":["001","002"],"b":["003","004"]}' correction=permutation
                                                             # M5: engine + correction + package
 ffs_tool_run argv='["ffs_info","-nv",<bucket>]'             # M6: escape hatch + provenance

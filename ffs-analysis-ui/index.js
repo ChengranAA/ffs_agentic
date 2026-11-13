@@ -1481,6 +1481,26 @@ function exportPackage() {
     if (existsSync(shot)) copyFileSync(shot, path.join(surfaceDir, 'screenshot.png'))
   }
 
+  const statsArtifact = settled.artifacts.find((artifact) => artifact.kind === 'stats' && !/ffsremlvar/.test(artifact.name) && /stats-reml/.test(artifact.name))
+    || settled.artifacts.find((artifact) => artifact.kind === 'stats' && !/ffsremlvar/.test(artifact.name))
+  const statsAbs = statsArtifact ? resolveInside(statsArtifact.path, 'stats') : null
+  if (statsAbs && existsSync(statsAbs)) {
+    copyFileSync(statsAbs, path.join(dir, 'frozen', path.basename(statsAbs)))
+  }
+  const figuresDir = path.join(dir, 'figures')
+  mkdirSync(figuresDir, { recursive: true })
+  const screenshotsDir = path.join(workAbs, 'screenshots')
+  if (existsSync(screenshotsDir)) {
+    for (const name of readdirSync(screenshotsDir).filter((item) => /\.(png|jpe?g)$/i.test(item))) {
+      copyFileSync(path.join(screenshotsDir, name), path.join(figuresDir, name))
+    }
+  }
+  const verifyDir = path.join(dir, 'verify')
+  mkdirSync(verifyDir, { recursive: true })
+  for (const name of ['artifact_hash.py', 'artifact_compare.py']) {
+    copyFileSync(path.join(PKG_DIR, 'scripts', name), path.join(verifyDir, name))
+  }
+
   let viewerIncluded = null
   const viewerState = path.join(PROJECT_ROOT, '.ffs-viewer')
   if (existsSync(path.join(viewerState, 'viewer.ffs'))) {
@@ -1493,8 +1513,10 @@ function exportPackage() {
     viewerIncluded = { script: 'viewer/viewer.ffs', workspace: 'viewer/workspace.json' }
   }
 
-  const resultsView = state.resultsView || { threshold: 3.1, minCluster: 10 }
-  const results = ensureResults(workAbs, statsArtifact ? resolveInside(statsArtifact.path, 'stats') : '')
+  const results = ensureResults(workAbs, statsArtifact ? resolveInside(statsArtifact.path, 'stats') : '', {
+    threshold: settled.results?.threshold ?? 3.1,
+    minCluster: settled.results?.minCluster ?? 10,
+  })
   const contrastRows = [['contrast', 'subBrick', 'peakT', 'i', 'j', 'k', 'x_mm', 'y_mm', 'z_mm']]
   const clusterRows = [['contrast', 'voxels', 'peakT', 'i', 'j', 'k', 'x_mm', 'y_mm', 'z_mm']]
   for (const contrast of results.contrasts || []) {
@@ -1607,11 +1629,34 @@ echo "doctor: ok"
     try { execFileSync('chmod', ['+x', path.join(dir, file)]) } catch { /* best effort */ }
   }
   writePortableLock(dir)
+  writeFileSync(path.join(dir, 'verify.sh'), `#!/usr/bin/env bash
+set -euo pipefail
+here="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+cd "$here"
+echo "== checksums =="
+shasum -a 256 -c checksums.sha256
+echo "checksums: ok"
+if [ "\${1:-}" = "--replay" ]; then
+  source "$here/env.sh"
+  work="$(mktemp -d)"
+  script=$(ls frozen/proc_sub-*.sh | head -1)
+  stats=$(ls frozen/stage12.stats-reml.*.nii.gz | head -1)
+  sed 's|^OUT=.*$|OUT="$(cd "$(dirname "$0")" && pwd)"|' "$script" > "$work/$(basename "$script")"
+  cp frozen/stage11.design.*.toml "$work"/ 2>/dev/null || true
+  cp -R frozen/stimuli "$work"/ 2>/dev/null || true
+  ( cd "$work" && bash "$(basename "$script")" > replay.log 2>&1 )
+  python verify/artifact_compare.py "$stats" "$work/$(basename "$stats")" | tee replay-compare.json
+  grep -q '"toleranceMatch": true' replay-compare.json
+  echo "replay: numerically equivalent"
+fi
+`)
+  try { chmodSync(path.join(dir, 'verify.sh'), 0o755) } catch { /* best effort */ }
   writeFileSync(path.join(dir, 'manifest.json'), renderManifest(settled, {
     lock: { path: 'lock.json', sha256: sha256File(path.join(dir, 'lock.json')) },
     methodsLint,
     surface: surfaceNames.length ? { files: surfaceNames, labels: surfaceLabels } : null,
     viewer: viewerIncluded,
+    verify: { script: 'verify.sh', frozenStats: statsAbs ? path.basename(statsAbs) : null, figures: existsSync(figuresDir) },
   }))
 
   const checksumLines = []
@@ -2787,6 +2832,42 @@ function ffsReplay(params = {}) {
   return { ok: exitCode === 0 && match, exitCode, match, exact, toleranceMatch, ...record }
 }
 
+function verifyPackage(params = {}) {
+  const dirRel = params.dir ? String(params.dir) : ''
+  const dir = resolveInside(dirRel, 'package')
+  if (!existsSync(dir) || !existsSync(path.join(dir, 'checksums.sha256'))) {
+    throw Object.assign(new Error('not an exported package (checksums.sha256 missing)'), { code: 'verify-invalid' })
+  }
+  const lines = readFileSync(path.join(dir, 'checksums.sha256'), 'utf8').split('\n').filter(Boolean)
+  const mismatches = []
+  for (const line of lines) {
+    const match = /^([0-9a-f]{64})\s+(.+)$/.exec(line)
+    if (!match) continue
+    const [, expected, rel] = match
+    const absolute = path.join(dir, rel)
+    const actual = sha256File(absolute)
+    if (!actual || actual !== expected) mismatches.push({ path: rel, expected, actual })
+  }
+  let replay = null
+  if (params.replay) {
+    try {
+      const output = execFileSync('bash', [path.join(dir, 'verify.sh'), '--replay'], {
+        env: ffsEnv(), cwd: dir, encoding: 'utf8', timeout: 3600000,
+      })
+      replay = { ok: true, tail: output.split('\n').filter(Boolean).slice(-6) }
+    } catch (error) {
+      replay = { ok: false, error: String(error && error.message), tail: String(error && error.stdout || '').split('\n').filter(Boolean).slice(-6) }
+    }
+  }
+  return {
+    ok: mismatches.length === 0 && (!replay || replay.ok),
+    dir: path.relative(PROJECT_ROOT, dir),
+    checked: lines.length,
+    mismatches,
+    replay,
+  }
+}
+
 // ------------------------------------------------------------------ transport
 function writeJson(res, status, value) {
   const body = JSON.stringify(value)
@@ -3161,6 +3242,27 @@ export function apply(ctx) {
   }), 'ffs-analysis: ffs_group alias')
 
   ctx.effect(() => ctx.tools.register({
+    name: 'ffs_analysis_verify',
+    description: [
+      'Verify an exported package: check every checksum, and optionally rerun the frozen',
+      'pipeline (verify.sh --replay) and compare the stats bucket numerically.',
+    ].join('\n'),
+    parameters: {
+      type: 'object',
+      properties: {
+        dir: { type: 'string', description: 'Package directory, project-relative (e.g. exports/...).' },
+        replay: { type: 'boolean', description: 'Also rerun the frozen pipeline (slow).' },
+      },
+      required: ['dir'],
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    },
+    async execute(args) { return JSON.stringify(verifyPackage(args || {}), null, 1) },
+  }), 'ffs-analysis: verify tool')
+
+  ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_settle',
     description: [
       'Freeze the completed analysis into a settled record: plan, run times, artifacts with',
@@ -3306,6 +3408,16 @@ export function apply(ctx) {
             cohort: discoverCohort(workRoot),
             validation: validateCohort(workRoot),
           })
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'verify') {
+        try {
+          const body = req.method === 'POST' ? await readJsonBody(req) : {}
+          writeJson(res, 200, { ok: true, ...verifyPackage(body) })
         } catch (error) {
           routeError(res, error)
         }

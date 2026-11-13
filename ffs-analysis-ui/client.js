@@ -106,6 +106,8 @@ window.__ModuleLoader__.load({
       replayMismatch: 'Replay differs',
       resume: 'Resume',
       applyResults: 'Apply threshold',
+      verify: 'Verify package',
+      verifying: 'Verifying…',
       exportFailed: 'Export failed',
       sourceLive: 'live',
       sourceFixture: 'fixture',
@@ -799,7 +801,7 @@ window.__ModuleLoader__.load({
           : h('div', { className: 'ffa-empty' }, 'No group analyses yet.'))
     }
 
-    function ProvenanceSection({ snap, t, onSettle, onExport, onReplay, busyAction, replaying, replayResult, onCopy }) {
+    function ProvenanceSection({ snap, t, onSettle, onExport, onReplay, onVerify, busyAction, replaying, replayResult, verifying, verifyResult, onCopy }) {
       const provenance = snap.provenance || {}
       const completed = snap.pipeline?.status === 'completed'
       return h(Card, { title: t('provenance') },
@@ -836,12 +838,22 @@ window.__ModuleLoader__.load({
             disabled: !completed || replaying,
             title: 'Replay the frozen pipeline in a fresh work dir and compare the stats bucket',
           }, replaying ? t('replaying') : t('replay')),
+          h('button', {
+            className: 'ffa-btn',
+            onClick: onVerify,
+            disabled: !provenance.exportPath || verifying,
+            title: 'Check every package checksum',
+          }, verifying ? t('verifying') : t('verify')),
           h('span', { className: 'ffa-small ffa-muted' }, provenance.settledNote || '')),
         replayResult
           ? h('div', { className: 'ffa-small', style: { marginTop: 4 } },
             `${replayResult.match ? t('replayMatch') : t('replayMismatch')} · exact=${replayResult.exact ? 'yes' : 'no'} · ` +
             `${replayResult.comparison && replayResult.comparison.maxAbsDiff != null ? `max Δ=${Number(replayResult.comparison.maxAbsDiff).toExponential(2)}` : ''} · ` +
             `${replayResult.dest || ''}`)
+          : null,
+        verifyResult
+          ? h('div', { className: 'ffa-small', style: { marginTop: 4 } },
+            `${verifyResult.ok ? 'package ok' : 'package FAILED'} · checked ${verifyResult.checked} · mismatches ${(verifyResult.mismatches || []).length}`)
           : null,
         provenance.settledAt
           ? h('div', { className: 'ffa-small ffa-muted' }, `settled ${provenance.settledAt}`)
@@ -861,6 +873,8 @@ window.__ModuleLoader__.load({
       const [replaying, setReplaying] = useState(false)
       const [replayResult, setReplayResult] = useState(null)
       const [applyingResults, setApplyingResults] = useState(false)
+      const [verifying, setVerifying] = useState(false)
+      const [verifyResult, setVerifyResult] = useState(null)
       const [cohortValidation, setCohortValidation] = useState(null)
       const [toast, setToast] = useState(null)
 
@@ -989,6 +1003,27 @@ window.__ModuleLoader__.load({
           setBusyAction(null)
         }
       }, [refresh, t])
+
+      const verifyPackageUi = useCallback(async () => {
+        setVerifying(true)
+        try {
+          const dir = snap?.provenance?.exportPath
+          if (!dir) throw new Error('export the package first')
+          const res = await fetch('/ffs-analysis/verify', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ dir }),
+          })
+          const payload = await res.json().catch(() => null)
+          if (!res.ok || !payload) throw new Error(payload?.error?.message || `verify failed (${res.status})`)
+          setVerifyResult(payload)
+          setToast(payload.ok ? 'package verified' : 'package has mismatches')
+        } catch (e) {
+          setToast(`verify failed: ${e && e.message || e}`)
+        } finally {
+          setVerifying(false)
+        }
+      }, [snap])
 
       const applyResultsView = useCallback(async (options) => {
         setApplyingResults(true)
@@ -1216,7 +1251,7 @@ window.__ModuleLoader__.load({
       else if (section === 'results') content = h(ResultsSection, { snap, t, onInspect: inspectResults, onApplyResults: applyResultsView, applyingResults })
       else if (section === 'cohort') content = h(CohortSection, { snap, t, onValidate: validateCohortUi, validating: busyCohort, validation: cohortValidation, onToggleInclude: toggleCohortInclude })
       else if (section === 'group') content = h(GroupSection, { snap, t, onRunGroup: runGroup, runningGroup: busyGroup, onInspectGroup: inspectGroup })
-      else content = h(ProvenanceSection, { snap, t, onSettle: settleAnalysis, onExport: exportAnalysis, onReplay: replayPipeline, busyAction, replaying, replayResult, onCopy: copyPath })
+      else content = h(ProvenanceSection, { snap, t, onSettle: settleAnalysis, onExport: exportAnalysis, onReplay: replayPipeline, onVerify: verifyPackageUi, busyAction, replaying, replayResult, verifying, verifyResult, onCopy: copyPath })
 
       return h('div', { className: 'ffa-root' },
         h('header', { className: 'ffa-head' },
