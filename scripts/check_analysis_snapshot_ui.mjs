@@ -31,7 +31,7 @@ apply(ctx)
 assert.ok(handler, 'analysis route did not register')
 const response = { status: 0, body: '', writeHead(code) { this.status = code }, end(body) { this.body = String(body) } }
 await handler({ method: 'GET', url: '/ffs-analysis/snapshot', headers: {} }, response)
-assert.equal(response.status, 200, `snapshot route returned ${response.status}`)
+assert.equal(response.status, 200, `snapshot route returned ${response.status}: ${response.body}`)
 const snap = JSON.parse(response.body)
 
 const client = await loadClient(pathToFileURL(path.join(ROOT, 'ffs-analysis-ui/client.js')).href)

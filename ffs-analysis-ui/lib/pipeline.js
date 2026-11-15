@@ -114,11 +114,11 @@ export function defaultPipeline(overrides = {}) {
     schema: PIPELINE_SCHEMA,
     version: 1,
     scope: {
-      bidsDir: overrides.bidsDir || 'data/real/ds005165',
-      subject: overrides.subject || '01',
+      bidsDir: overrides.bidsDir || '',
+      subject: overrides.subject || '',
       session: overrides.session ? [].concat(overrides.session) : [],
       task: overrides.task ? [].concat(overrides.task) : [],
-      workDir: overrides.workDir || 'work/ds005165/sub-01',
+      workDir: overrides.workDir || '',
     },
     recipe: overrides.recipe ?? null,
     overrides: overrides.overrides || {},
@@ -136,11 +136,11 @@ export function normalizePipeline(raw) {
     schema: PIPELINE_SCHEMA,
     version: Number.isInteger(pipe.version) && pipe.version > 0 ? pipe.version : 1,
     scope: {
-      bidsDir: SLICE(scope.bidsDir) || 'data/real/ds005165',
-      subject: SLICE(scope.subject) || '01',
+      bidsDir: SLICE(scope.bidsDir) || '',
+      subject: SLICE(scope.subject) || '',
       session: list(scope.session),
       task: list(scope.task),
-      workDir: SLICE(scope.workDir) || 'work/ds005165/sub-01',
+      workDir: SLICE(scope.workDir) || '',
       out: SLICE(scope.out),
     },
     recipe: pipe.recipe ? SLICE(pipe.recipe) : null,
@@ -153,7 +153,7 @@ export function normalizePipeline(raw) {
 /** Build a pipeline from the legacy single-project state, so existing work keeps running. */
 export function migratePipelineFromState(state) {
   const params = state?.params || {}
-  const workDir = state?.workDir || params.workDir || 'work/ds005165/sub-01'
+  const workDir = state?.workDir || params.workDir || ''
   const session = params.session ? [String(params.session)] : []
   const task = params.task ? [String(params.task)] : []
   const recipe = params.recipe || null

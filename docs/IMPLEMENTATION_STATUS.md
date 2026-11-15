@@ -1809,3 +1809,21 @@ and the panel kept showing fixture/demo text. The reset now writes `work/ffs-ana
 while it exists the snapshot is a true empty state (idle pipeline, no project/artifacts/QC/results),
 with a “Analysis cleared” banner and source tag/footer reading `cleared`. Any new project write removes
 the sentinel, and the API smoke asserts the empty snapshot (source, null dataset, zero artifacts).
+
+## No demo fixture by default (analysis 0.1.61)
+
+`readSnapshot()` no longer falls back to `fixtures/demo.json` when there is no project state.
+A fresh panel is an explicit empty snapshot (`source: "empty"`, `cleared: false`) with an
+“No analysis loaded” banner; a cleared project is the same with `cleared: true` and the
+“Analysis cleared” banner. The demo fixture remains available only to tests/screenshots; it is
+never served as the user's default analysis. Section/navigation smokes now run against the empty
+state as well.
+
+## Remove remaining demo defaults (analysis 0.1.62)
+
+- `defaultPipeline()`/`normalizePipeline()` no longer fill `data/real/ds005165`, subject `01`,
+  or `work/ds005165/sub-01`; a fresh planner is blank and asks for Dataset/subject/work dir.
+- `ffs_analysis_plan` requires `bidsDir` and `subject` (derives a project work dir when omitted);
+  its tool schema marks them required. No demo dataset is planned by default.
+- Cohort/group fallbacks no longer point at `work/ds005165`.
+- Snapshot tool description now says empty/live, and the README states no demo is loaded by default.

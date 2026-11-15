@@ -137,8 +137,10 @@ hovering reveals the full path in the footer (double-click loads). Clicking an e
 - The same operations are agent tools: `ffs_viewer_sources` (list/add/remove/read/subject/
   load_entry) and `ffs_viewer_load` (direct paths), plus `LOAD`/`LOAD_SURFACES` command lines.
 
-The `data/demo` fixture and its builder remain for tests and screenshots only; the viewer
-never loads it implicitly.
+The `data/demo` and analysis fixtures remain for tests and screenshots only. Neither the
+viewer nor the Analysis tab loads a demo dataset by default: a fresh Analysis tab starts in an
+explicit empty state, and the plan tool requires `bidsDir` + `subject` instead of defaulting to
+the ds005165 demo.
 
 ### Analysis tab on real data
 

@@ -51,10 +51,10 @@ const ROUTE = '/ffs-analysis'
 const RECIPES = ['bare_bones', 'simple', 'simple_linear', 'simple_nonlin', 'complete', 'extreme']
 
 const PLAN_DEFAULTS = {
-  bidsDir: 'data/real/ds005165',
-  subject: '01',
-  session: '01',
-  task: 'localizer',
+  bidsDir: '',
+  subject: '',
+  session: '',
+  task: '',
   recipe: 'bare_bones',
   noQc: true,
   device: 'auto',
@@ -67,7 +67,7 @@ const PLAN_DEFAULTS = {
   refFile: null,
   refTransforms: [],
   refFileAnat: null,
-  workDir: 'work/ds005165/sub-01',
+  workDir: '',
 }
 
 const RESULTS_SCRIPT = path.join(PKG_DIR, 'scripts', 'results.py')
@@ -852,30 +852,31 @@ function resolveFixture() {
   }
 }
 
-function emptySnapshot() {
-  const base = resolveFixture()
+function emptySnapshot(cleared = false) {
   return {
-    ...base,
     schema: 'ffs-analysis-snapshot/1',
     source: 'empty',
-    note: 'No analysis loaded. Set the Dataset and generate a plan.',
+    cleared,
+    note: cleared
+      ? 'Analysis cleared. Set a Dataset and generate a plan to start over.'
+      : 'No analysis loaded. Set a Dataset and generate a plan.',
     project: {
-      ...base.project, name: null, dataset: null, root: null, subject: null,
-      session: null, device: null, createdAt: null,
+      name: null, dataset: null, root: null, subject: null, session: null,
+      device: null, createdAt: null, workDir: null,
     },
     pipeline: {
-      ...base.pipeline, id: null, status: 'idle', recipe: null, script: null, log: null,
-      command: '', statusText: null, elapsedSeconds: 0, progress: 0, currentStage: null,
-      activity: null, finishedAt: null, stages: [], logExcerpt: [],
+      id: null, status: 'idle', recipe: null, script: null, log: null, command: '',
+      elapsedSeconds: 0, progress: 0, currentStage: null, activity: null,
+      finishedAt: null, stages: [], logExcerpt: [],
     },
     artifacts: [],
-    qc: { ...base.qc, status: 'not-run', note: '', figures: [] },
+    qc: { status: 'not-run', note: '', figures: [], review: null },
     results: {
-      ...base.results, model: null, meanR2: null, clusters: [], contrasts: [],
-      clusterNote: '', voxelsInMask: 0, subBricks: 0, preview: null,
+      model: null, meanR2: null, clusters: [], contrasts: [], clusterNote: '',
+      voxelsInMask: 0, subBricks: 0, preview: null,
     },
-    cohort: { ...base.cohort, total: 0, included: 0, subjects: [], note: '', variants: [] },
-    group: { ...base.group, status: 'not-run', note: '', analyses: [] },
+    cohort: { total: 0, included: 0, subjects: [], note: '', status: 'not-run', variants: [] },
+    group: { status: 'not-run', note: '', analyses: [] },
     provenance: null,
     surface: null,
   }
@@ -891,19 +892,20 @@ function hasClearBackup() {
 }
 
 function readSnapshot() {
-  if (existsSync(CLEARED_FILE)) return emptySnapshot()
+  if (existsSync(CLEARED_FILE)) return emptySnapshot(true)
   const state = readProjectState()
   // Older clears removed the state without writing the sentinel; keep them empty instead of
   // resurrecting the demo fixture.
-  if (!state && hasClearBackup()) return emptySnapshot()
+  if (!state && hasClearBackup()) return emptySnapshot(true)
   if (state) {
     try {
       return buildLiveSnapshot(state)
     } catch (error) {
-      console.error('[ffs-analysis] live snapshot failed, serving fixture:', error)
+      console.error('[ffs-analysis] live snapshot failed:', error)
     }
   }
-  return resolveFixture()
+  // No demo fallback: a fresh panel starts empty. The fixture is only used by tests/screenshots.
+  return emptySnapshot(false)
 }
 
 function snapshotSummary() {
@@ -1763,6 +1765,8 @@ function planParams(overrides = {}) {
     }
   }
   if (!String(params.subject || '').trim()) throw new Error('subject is required')
+  if (!String(params.bidsDir || '').trim()) throw new Error('bidsDir is required')
+  if (!String(params.workDir || '').trim()) params.workDir = `work/ffs-analysis/sub-${String(params.subject).trim()}`
   if (!RECIPES.includes(params.recipe)) throw new Error(`unknown recipe: ${params.recipe}`)
   for (const key of ['subject', 'session', 'task']) {
     if (!/^[A-Za-z0-9_-]*$/.test(String(params[key]))) throw new Error(`invalid ${key}: ${params[key]}`)
@@ -3478,7 +3482,7 @@ function doctorChecks() {
 }
 
 // ------------------------------------------------------------------ cohort / group
-const DEFAULT_COHORT_ROOT = path.join(PROJECT_ROOT, 'work', 'ds005165')
+const DEFAULT_COHORT_ROOT = path.join(PROJECT_ROOT, 'work')
 const GROUP_STATE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-analysis-group.json')
 const COHORT_PREFS_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-cohort-include.json')
 const COHORT_DECISIONS_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-cohort-decisions.json')
@@ -3658,7 +3662,7 @@ function discoverCohort(workRootAbs) {
 function groupCohortRoot(analysis) {
   if (analysis.cohortRoot) return analysis.cohortRoot
   // Legacy records predate the field; the group work dir sits under its cohort root.
-  return analysis.workDir ? path.dirname(analysis.workDir) : 'work/ds005165'
+  return analysis.workDir ? path.dirname(analysis.workDir) : 'work'
 }
 
 function readGroupState() {
@@ -4821,7 +4825,7 @@ export function apply(ctx) {
     name: 'ffs_analysis_snapshot',
     presentCall: (args) => ({ card: 'generic', kind: 'read', title: 'FFS analysis snapshot', rawInput: args }),
     description: [
-      'Read the FFS analysis inspection tab snapshot. Returns the source (fixture or live),',
+      'Read the FFS analysis inspection tab snapshot. Returns the source (empty or live),',
       'pipeline status/progress/current stage, artifact count, cohort and group counts.',
       'It does not run any computation.',
     ].join('\n'),
@@ -4905,8 +4909,8 @@ export function apply(ctx) {
     presentCall: (args) => ({ card: 'generic', kind: 'write', title: 'FFS pipeline plan', rawInput: args }),
     description: [
       'Generate an ffs_autoproc plan (script + design specs, no execution) for the analysis',
-      'tab. Defaults to the ds005165 sub-01 localizer subset already in this checkout.',
-      'Writes work/ffs-analysis-project.json and makes the tab live.',
+      'tab. Requires bidsDir and subject; there is no demo default. Absolute read-only input',
+      'paths are accepted. Writes work/ffs-analysis-project.json and makes the tab live.',
     ].join('\n'),
     parameters: {
       type: 'object',
@@ -4915,8 +4919,8 @@ export function apply(ctx) {
         session: { type: 'string', description: 'BIDS session id without "ses-".' },
         task: { type: 'string', description: 'Task label to plan.' },
         recipe: { type: 'string', enum: RECIPES, description: 'ffs_autoproc recipe.' },
-        bidsDir: { type: 'string', description: 'BIDS root, project-relative.' },
-        workDir: { type: 'string', description: 'Work directory, project-relative.' },
+        bidsDir: { type: 'string', description: 'BIDS root; project-relative or an absolute external data path.' },
+        workDir: { type: 'string', description: 'Work directory, project-relative (derived when omitted).' },
         noQc: { type: 'boolean', description: 'Pass -no_qc (default true on this Mac).' },
         device: { type: 'string', enum: ['auto', 'cpu', 'mps', 'cuda'], description: 'Compute device for the run (default auto).' },
         anat: { type: 'string', description: 'Explicit anatomical image (project-relative).' },
@@ -4929,7 +4933,7 @@ export function apply(ctx) {
         refTransforms: { type: 'array', items: { type: 'string' }, description: 'Reference-to-anat matrices/warps in nwarp order.' },
         refFileAnat: { type: 'string', description: 'Anat that -ref_file transforms land in.' },
       },
-      required: [],
+      required: ['bidsDir', 'subject'],
     },
     output: {
       schema: { type: 'string' },

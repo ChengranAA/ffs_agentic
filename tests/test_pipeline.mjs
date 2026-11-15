@@ -86,6 +86,14 @@ function basePipeline(overrides = {}) {
   })
 }
 
+test('fresh pipeline defaults are blank, not the ds005165 demo', () => {
+  const fresh = defaultPipeline()
+  assert.equal(fresh.scope.bidsDir, '')
+  assert.equal(fresh.scope.subject, '')
+  assert.equal(fresh.scope.workDir, '')
+  assert.equal(normalizePipeline({ scope: {} }).scope.bidsDir, '')
+})
+
 test('external input roots are allowed while outputs stay inside the project', () => {
   const base = basePipeline()
   const external = normalizePipeline({

@@ -23,7 +23,7 @@ node scripts/bench_analysis_record.mjs     # writes work/benchmarks/analysis-rec
 |---|---|
 | JS unit | `node --test tests/*.mjs` (store, pipeline, commands, UI contracts, hook hygiene, record UI) |
 | Python unit | `.venv/bin/python -m unittest discover -s tests` |
-| Analysis UI | `check_analysis_client.mjs` render, `check_analysis_qc.mjs` decision interaction, `check_analysis_guide.mjs` guidance, `check_analysis_snapshot_ui.mjs` all sections against the live snapshot, `check_analysis_sections_nav.mjs` rail navigation |
+| Analysis UI | `check_analysis_client.mjs` render, `check_analysis_qc.mjs` decision interaction, `check_analysis_guide.mjs` guidance, `check_analysis_snapshot_ui.mjs` all sections against the live/empty snapshot, `check_analysis_sections_nav.mjs` rail navigation |
 | Record UI | `check_record_client.mjs` render smoke, `check_record_ui_interaction.mjs` decision-composer smoke, `check_record_sections_interaction.mjs` runs-filter/inspection-controls smoke |
 | Viewer UI | `check_viewer_client_render.mjs` mounts `ViewerBody` (render), `ControlRail` (pause/save/restore bridge calls), and `CommandBar` (submit + history recall) |
 | API | `check_pipeline_api.mjs`, `check_record_api.mjs`, `check_inspection_api.py`, `check_viewer_preferences.mjs` |
