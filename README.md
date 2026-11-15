@@ -1,12 +1,24 @@
-# FFS Harness viewer
+# FFS for DeepSeek Harness
 
 <p align="center"><img src="screenshots/logo_preview.png" width="300" alt="FFS logo — folded cortex and crosshair"></p>
 
-An interactive fMRI viewer for DeepSeek Harness, built on the
-[fastfuncstuff](https://github.com/dowdlelt/fastfuncstuff) viewer. FFS's datasets, layers,
-modes, command controller and independent viewports are preserved; its separate desktop
-windows are consolidated into one resizable workspace with docked and tabbed panes inside
-the Harness Web interface.
+FFS for DeepSeek Harness is more than a viewer. It brings three connected surfaces into the
+Harness Web interface, built on
+[fastfuncstuff](https://github.com/dowdlelt/fastfuncstuff):
+
+- **Viewer tab** — an interactive fMRI viewer. FFS's datasets, layers, modes, command
+  controller and independent viewports are preserved; its separate desktop windows are
+  consolidated into one resizable workspace with docked and tabbed panes.
+- **Analysis tab** — an autoproc-centred pipeline panel: recipe and scope selection, the
+  emitted stage board, grouped editing of all autoproc flags, validation-aware
+  Generate/Run, live run progress, QC decisions, results, cohort/group analyses and a
+  reproducible package with provenance.
+- **Record tab** — the append-only record layer shared by the other two: run attempts,
+  decision history, durable inspection sessions, the preference profile, project policy
+  and retention/settings.
+
+One validated command model connects them: the viewer writes inspection records, the
+analysis panel writes decisions and run attempts, and the Record tab reviews both.
 
 ![Workspace layout](docs/workspace.svg)
 
@@ -20,21 +32,23 @@ is the icon + **FFS** lockup.
 
 | Path | What |
 |---|---|
-| `ffs-record/` | `@local/ffs-record` bundle (R0–R5): Host tools/route over the append-only ledger, decisions, preferences and inspection index, plus a **Record tab** Client surface. **Installed** in the `desktop` profile (Host tools live; reload the page for the Client tab) |
+| `ffs-analysis-ui/` | `@local/ffs-analysis-ui` bundle (EP0–EP3): autoproc schema/state routes and agent tools, the **Analysis tab** Client surface (planner, stage options, All-options drawer, QC/results/cohort/group, provenance), and pure JS pipeline/command/explain modules |
+| `ffs-record/` | `@local/ffs-record` bundle (R0–R6): Host tools/route over the append-only ledger, decisions, preferences and inspection index, plus the **Record tab** Client surface (attempts, decisions, inspection, preferences, policy, settings). **Installed** in the `desktop` profile |
 | `docs/PHILOSOPHY_CONFORMANCE.md` | re-audited charter conformance map: **13 met / 0 partial / 0 absent**, with file-level evidence and residual gaps |
 | `scripts/compact_inspection.py` | inspection retention: compact old viewer sessions (age/byte budget) into compact records with tombstones; `--dry-run` supported |
 | `python/ffsrecord/` | R3 deterministic preference layer: inspection-session feature shards, policy.yaml, profile aggregation, precedence resolution, `python -m ffsrecord.cli` |
 | `shared/record/` | dependency-free record store shared by the analysis and record bundles (append-only shards, actors, fold, rebuild, legacy import) |
-| `ffs-harness-viewer/` | the Harness bundle: Host plugin (`index.js`: sidecar manager, authenticated `/ffs` bridge route, ten agent tools) and Client plugin (`client.js`: right-Sidebar tab with docked slice/surface/series panes) |
+| `ffs-harness-viewer/` | the Viewer Harness bundle: Host plugin (`index.js`: sidecar manager, authenticated `/ffs` bridge route, agent tools) and Client plugin (`client.js`: right-Sidebar tab with docked slice/surface/series panes) |
 | `python/ffsviewer/` | headless FFS sidecar: authoritative `ViewerSession`, validated command dispatch, PNG slice rendering, surface sampling/picking, series extraction, persistence |
 | `reference/fastfuncstuff` | read-only clone of the original viewer/scientific core the sidecar imports |
 | `data/demo/` | deterministic demo dataset + synthetic FreeSurfer subject (`scripts/build_demo_data.py`) |
 | `docs/API.md` | the shared validated command/transport contract |
 | `docs/WORKFLOW.md` | FFS analysis workflow and plugin-integration design (compute ↔ viewer ↔ project manifest) |
 | `docs/ANALYSIS_UI.md` | analysis inspection UI design: tab, cohort/group views, slots, transport, wireframes |
-| `docs/ANALYSIS_PANEL.md` | **design v0.3 (autoproc-centred)** for the analysis panel: recipe presets, the 19-stage board, grouped editing of the 172 autoproc flags, scratch runner, inline QC verdicts |
+| `docs/ANALYSIS_PANEL.md` | **design v0.3 / implemented** for the analysis panel: recipe presets, the 20-stage board, grouped editing of the 174 autoproc flags, scratch runner, inline QC verdicts, Next-step guide |
+| `docs/TESTING.md` | automated tests and benchmarks: unit suites, mini-React UI interaction smokes, live-snapshot section/navigation tests, analysis/record/viewer benchmarks with `--check` |
 | `docs/analysis_panel_*.svg` | design sketches: stage board + inspector, all-options drawer, QC decisions (v0.3) |
-| `docs/RECORD.md` | record-layer design and build status: run-attempt ledger, decision records, durable inspection log, preference profile, deletion semantics, milestones R0–R5 built |
+| `docs/RECORD.md` | record-layer design and build status: run-attempt ledger, decision records, durable inspection log, preference profile, deletion semantics, milestones R0–R6 built |
 | `docs/REPRO_PACKAGE.md` | reproducible cohort/group package: runnable scripts, STEPS/METHODS, verification |
 | `docs/FEATURE_INVENTORY.md` | exhaustive inventory of the original viewer, source-referenced |
 | `docs/PARITY.md` | feature parity tracker (implemented / partial / not started / out of scope) |
@@ -45,15 +59,32 @@ is the icon + **FFS** lockup.
 
 ## Run
 
-The bundle is installed in the `desktop` Harness profile. The viewer is **docked in the
-right Sidebar** as a tab: click **FFS viewer** in the Session header (or open the right
-sidebar and pick the FFS viewer capsule from its guide). Ask the agent to `ffs_viewer_show`
-and the docked tab is revealed. Expand the Sidebar or switch it to fullscreen with its own
-panel controls for more room; inside the tab, panes still dock, tab, split, resize and
-maximize.
+The bundles are installed in the `desktop` Harness profile. The right Sidebar hosts three
+tabs:
+
+- **FFS viewer** — click **FFS viewer** in the Session header (or pick the capsule from the
+  guide), or ask the agent to `ffs_viewer_show`. The docked tab reveals; expand the Sidebar
+  for more room. Panes still dock, tab, split, resize and maximize.
+- **Analysis** — open the analysis tab (or ask the agent to `ffs_analysis_show`) to plan,
+  configure, generate and run `ffs_autoproc`, then review QC/results and settle/export the
+  package.
+- **Record** — open the Record tab to review attempts, decisions, inspection sessions,
+  preferences, policy and retention settings.
 
 After a client-plugin update, refresh the Harness page once so the Web loader fetches the
-new `client.js`; the Host half and its Python sidecar reload with the bundle row.
+new `client.js` files; Host halves and their Python sidecars reload with the bundle rows.
+
+## Test and benchmark
+
+```bash
+node scripts/run_test_suite.mjs            # units + UI/API smokes + benchmark
+node scripts/run_test_suite.mjs --quick    # skip benchmark
+node scripts/run_test_suite.mjs --check    # fail on benchmark regressions
+```
+
+The runner covers JS/Python units, analysis/record/viewer UI interactions, API smokes and
+analysis/record/viewer benchmarks; reports go to `work/test-suite-report.json` and
+`work/benchmarks/analysis-record.json`. See [docs/TESTING.md](docs/TESTING.md).
 
 ### Record tab installation
 
