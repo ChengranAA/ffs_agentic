@@ -18,3 +18,6 @@ __pycache__/
 
 # generated demo surface BIDS wrapper (scripts/create it from data/demo)
 data/bids-demo/
+
+# local SPM/group TPM reference data (not source)
+data/tpm/

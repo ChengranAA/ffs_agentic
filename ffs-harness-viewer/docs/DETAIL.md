@@ -20,10 +20,11 @@ maximize. The tab is revealed when an agent runs `ffs_viewer_show`.
 The left rail is a card inspector: a compact header with Data, collapsible Layers,
 Display, Time, Navigate and Scene cards, a two-level Display card (primary controls +
 Advanced), segmented Sign/outline controls, and a fixed Save/Restore footer. Layer rows
-carry visibility, swatch, middle-truncated filename, key and volume count; the Display
-card surfaces **OLAY** (shown sub-brick), **THR ON** (threshold sub-brick plus
-same/+1/+2/fixed follow), a threshold on/off toggle, a range **Auto** action and an interactive colour bar (end handles set min/max; clicking/dragging the bar sets threshold),  and advanced range mirror/fixed,
-reverse, edges, time-linked and time-view detrend/PSC options; hovering a
+carry visibility, swatch, middle-truncated filename, key and volume count; the rail is split into **Colour** (selected layer, colormap, opacity, sign, horizontal
+range bar with min/max + Auto + mirror/fixed/reverse) and **Overlay** (OLAY shown
+sub-brick, THR ON threshold sub-brick with same/+1/+2/fixed follow, threshold on/off +
+numeric entry/slider, alpha, boxed/edges/time-linked, and time-view detrend/PSC under
+Advanced); hovering a
 row shows the complete path instantly and double-clicking copies it; the eject button on each
 row (and **Unload** in the selected-layer header) removes it with `REMOVE_LAYER`.
 
@@ -54,6 +55,8 @@ Panes are floating windows with only snap and resize:
   highlight that half/quarter; release with Shift down to snap. Without Shift the drag
   always free-places, even at an edge.
 - **Resize** — drag an edge/corner or the ◢ grip.
+- **Minimize** — **–** sends a window to the bottom taskbar; click its chip to restore.
+- **Focus** — clicking a window raises it above the others; newly added windows open in front.
 
 Positions/sizes persist in `workspace.json`; there is no fixed slot grid. Each window has tabs; ⚙ per-view settings
 and ✕ close-tab remain in the pane header. Tabs read Viewer 1 / Viewer 2 / … (FFS ids

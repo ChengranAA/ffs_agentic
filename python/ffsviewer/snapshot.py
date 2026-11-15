@@ -76,6 +76,11 @@ def build_snapshot(session, meta: dict) -> dict:
             "voxelMm": float(np.linalg.norm(np.asarray(st.grid.affine)[:3, :3], axis=0).min()),
         }
     layers = [layer_record(layer) for layer in st.layers.layers]
+    for layer, record in zip(st.layers.layers, layers):
+        try:
+            record["thresholdScale"] = float(session.threshold_scale(layer.key))
+        except Exception:
+            record["thresholdScale"] = None
     viewports = [viewport_record(vp) for vp in st.viewports]
     if st.grid is not None:
         from fastfuncstuff.viewer.slicing import plane_layout
@@ -102,8 +107,10 @@ def build_snapshot(session, meta: dict) -> dict:
             brick = session.brick_caption(selected)
         except Exception:
             brick = None
+    # Surface-data layers have no volume inflate to wait for; counting them
+    # left the status line on "loading" forever when no subject was loaded.
     loading = any(
-        layer.n_volumes > 1 and not _resident(session, layer.key)
+        layer.source == "file" and layer.n_volumes > 1 and not _resident(session, layer.key)
         for layer in st.layers.layers
     )
     surface_subject = None

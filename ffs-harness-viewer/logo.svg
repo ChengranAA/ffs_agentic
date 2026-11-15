@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="132" height="36" viewBox="0 0 132 36">
+  <g fill="none" stroke="#E6EDF3" stroke-width="2" stroke-linejoin="round">
+    <path d="M18 4.2 30.4 11.3v13.4L18 31.8 5.6 24.7V11.3Z"/>
+  </g>
+  <g fill="none" stroke="#E6EDF3" stroke-width="1.55" stroke-linecap="round" opacity=".72">
+    <path d="M12 11.8c2.3 0 3.2 1.8 2.1 3.2s-3.1 1.6-3.1 3.2 1.4 2.9 3.4 2.9"/>
+    <path d="M24 11.8c-2.3 0-3.2 1.8-2.1 3.2s3.1 1.6 3.1 3.2-1.4 2.9-3.4 2.9"/>
+  </g>
+  <g fill="none" stroke="#E6EDF3" stroke-width="1.55" stroke-linecap="round">
+    <path d="M18 8.8v4.3M18 22.9v4.3M8.8 18h4.3M22.9 18h4.3"/>
+  </g>
+  <circle cx="18" cy="18" r="1.65" fill="#E6EDF3"/>
+  <text x="46" y="24.5" fill="#E6EDF3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="20" font-weight="700" letter-spacing="3">FFS</text>
+</svg>

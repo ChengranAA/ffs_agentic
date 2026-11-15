@@ -19,9 +19,24 @@
 
 import { execFileSync, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, statfsSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, statfsSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import {
+  defaultPipeline,
+  detectionFromScan,
+  formatArgv,
+  migratePipelineFromState,
+  normalizePipeline,
+  resolvePipelineArgv,
+  stagePlan,
+  validatePipeline,
+} from './lib/pipeline.js'
+import { normalizeCommands, runCommandList, validateCommands } from './lib/commands.js'
+import { explainQc, explainStage } from './lib/explain.js'
+import { appendEvent, newRunId, readFamily, recordingEnabled } from '../shared/record/store.js'
+import { readPreferenceProfile } from '../shared/record/preferences.js'
 
 export const name = 'ffs-analysis'
 
@@ -89,6 +104,10 @@ function findProjectRoot(start) {
 const PROJECT_ROOT = findProjectRoot(PKG_DIR)
 const PROJECT_STATE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-analysis-project.json')
 const RUN_STATE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-analysis-run.json')
+const PIPELINE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-pipeline.json')
+
+/** Cached `ffs_autoproc` CLI model, keyed by the source files' mtime+size. */
+let AUTOPROC_MODEL_CACHE = null
 
 function resolveInside(rel, label = 'path') {
   const abs = path.resolve(PROJECT_ROOT, String(rel || ''))
@@ -183,6 +202,44 @@ function artifactHint(kind) {
   return { role: 'text' }
 }
 
+const ARTIFACT_EXPLANATIONS = {
+  stats: 'Statistical map for the model contrast: higher values are stronger evidence at the recorded threshold.',
+  mask: 'Analysis mask: defines which voxels entered the GLM.',
+  func: 'Preprocessed functional series used by the GLM.',
+  params: 'Model parameters saved with the fit (motion/registration or similar).',
+  design: 'Design specification: the exact task model and regressors.',
+  script: 'Generated autoproc script; the execution and reproducibility unit.',
+  log: 'Preprocessing log: per-stage output, warnings and errors.',
+  other: 'Artifact recorded by the pipeline.',
+}
+
+function artifactExplanation(kind) {
+  return ARTIFACT_EXPLANATIONS[kind] || ARTIFACT_EXPLANATIONS.other
+}
+
+function artifactPathMatches(targetPath, artifactPath) {
+  const normalize = (value) => String(value || '').replaceAll('\\', '/')
+  const wanted = normalize(targetPath)
+  const actual = normalize(artifactPath)
+  if (!wanted || !actual) return false
+  return actual === wanted || actual.endsWith(`/${wanted}`) || wanted.endsWith(`/${actual}`)
+}
+
+/** Explicit status for an artifact, informed by decisions that name its path. */
+function artifactStatus(artifact, decisions) {
+  const matches = (decisions || []).filter((decision) => decision?.target?.path
+    && artifactPathMatches(decision.target.path, artifact.path))
+  const latest = matches[matches.length - 1]
+  if (latest) {
+    if (latest.action === 'reject') return 'rejected'
+    if (latest.action === 'tentative') return 'tentative'
+    if (latest.action === 'undecided') return 'undecided'
+    if (latest.action === 'accept') return 'accepted'
+  }
+  if (['stats', 'mask', 'func', 'params'].includes(artifact.kind)) return 'accepted'
+  return 'recorded'
+}
+
 function listArtifacts(workAbs) {
   const artifacts = []
   let entries = []
@@ -267,6 +324,7 @@ function listQcFigures(workAbs) {
         label: name.replace(/\.(png|jpe?g)$/i, ''),
         caption: 'FFS QC (CPU)',
         asset: `qc/${name}`,
+        help: explainQc({ label: name, asset: `qc/${name}` }),
       }))
   } catch {
     return []
@@ -389,7 +447,7 @@ function ensureRunLoaded() {
 
 function reconcileRunFromLog() {
   if (!RUN) return RUN
-  if (RUN.status === 'completed' || RUN.status === 'cancelled') return RUN
+  if (RUN.status !== 'running' && RUN.status !== 'stopping') return RUN
   const logRel = RUN.log || (RUN.script ? String(RUN.script).replace(/\.sh$/, '.log') : null)
   if (!logRel) return RUN
   const logAbs = path.join(PROJECT_ROOT, logRel)
@@ -414,7 +472,7 @@ function reconcileRunFromLog() {
 
 function isRunActive() {
   const run = ensureRunLoaded()
-  return Boolean(run && (run.status === 'running' || run.status === 'stopping'))
+  return Boolean(run && ['running', 'stopping', 'running-commands'].includes(run.status))
 }
 
 // ------------------------------------------------------------------ snapshot
@@ -437,12 +495,12 @@ function runView(state) {
 
   reconcileRunFromLog()
   const status = run ? run.status : null
-  const running = status === 'running' || status === 'stopping'
+  const running = ['running', 'stopping', 'running-commands'].includes(status)
   const banners = logBanners(logText)
   const current = running ? (banners[banners.length - 1] || null) : null
 
   const done = new Set()
-  if (status === 'completed') {
+  if (status === 'completed' || status === 'running-commands' || status === 'commands-failed') {
     for (const stage of parsed) done.add(stage.name)
   } else if (running) {
     for (const banner of banners.slice(0, -1)) done.add(banner)
@@ -699,8 +757,11 @@ function buildLiveSnapshot(state) {
         `-out ${state.script}`,
       ].filter(Boolean).join(' '),
       stages: view.stages,
+      commands: Array.isArray(RUN?.commands) ? RUN.commands : [],
       logExcerpt: view.logExcerpt,
     },
+    decisions: Array.isArray(state.decisions) ? state.decisions : [],
+    decisionSummary: decisionSummary(Array.isArray(state.decisions) ? state.decisions : []),
     job: {
       dshId: RUN?.dshJobId || null,
       status: view.status,
@@ -711,7 +772,14 @@ function buildLiveSnapshot(state) {
       finishedAt: view.finishedAt,
       error: view.error,
     },
-    artifacts,
+    artifacts: (() => {
+      const currentDecisions = readDecisions()
+      return artifacts.map((artifact) => ({
+        ...artifact,
+        status: artifactStatus(artifact, currentDecisions),
+        explanation: artifactExplanation(artifact.kind),
+      }))
+    })(),
     surface,
     qc: {
       status: figures.length ? 'ready' : 'none',
@@ -848,6 +916,752 @@ function snapshotSummary() {
     fixture: FIXTURE_FILE,
     state: PROJECT_STATE_FILE,
     runState: RUN_STATE_FILE,
+    pipelineFile: path.relative(PROJECT_ROOT, PIPELINE_FILE),
+    pipelineVersion: existsSync(PIPELINE_FILE) ? (readJsonIf(PIPELINE_FILE)?.version ?? null) : null,
+    preferences: (() => {
+      try {
+        return preferencesSummary(readPipeline().pipe.scope)
+      } catch {
+        return preferencesSummary({})
+      }
+    })(),
+  }
+}
+
+// ------------------------------------------------------------------ record layer (R0)
+function routeActor(surface = 'analysis-tab') {
+  return { kind: 'user', surface }
+}
+
+function actorFromExec(exec, tool) {
+  const agent = exec && exec.agent
+  if (!agent) return { kind: 'agent', tool, surface: 'tool', reason: 'no-agent-context' }
+  return {
+    kind: 'agent',
+    tool,
+    surface: 'tool',
+    sessionId: agent.id || agent.sessionId || null,
+    agentPath: agent.options?.name || agent.name || null,
+  }
+}
+
+function recordRunEvent(type, payload, { actor, links, project } = {}) {
+  if (!recordingEnabled()) return null
+  try {
+    return appendEvent(PROJECT_ROOT, 'runs', { type, actor, links, project, payload })
+  } catch (error) {
+    console.warn('[ffs-analysis] record append failed (analysis unaffected):', error?.message || error)
+    return null
+  }
+}
+
+function nextAttempt(subject, script) {
+  try {
+    const events = readFamily(PROJECT_ROOT, 'runs').events
+    const key = String(script || '')
+    return 1 + events.filter((event) => event.type === 'run.started'
+      && String(event.payload?.script?.path || event.payload?.script || '') === key
+      && (event.payload?.subject ?? null) === (subject ?? null)).length
+  } catch {
+    return 1
+  }
+}
+
+function recordStarted(runId, { mode, actor, subject, script, log, workDir, extra } = {}) {
+  return recordRunEvent('run.started', {
+    mode,
+    attempt: nextAttempt(subject, script),
+    subject: subject ?? null,
+    script: script ? {
+      path: script,
+      sha256: (() => { try { return sha256File(resolveInside(script, 'script')) } catch { return null } })(),
+    } : null,
+    log: log || null,
+    workDir: workDir || null,
+    pipeline: extra?.pipeline || null,
+  }, {
+    actor,
+    links: { run: runId },
+    project: { root: '.', subject: subject ?? null },
+  })
+}
+
+function recordEnded(runId, { actor, subject, status, exitCode, durationMs, error, commands, outputs } = {}) {
+  return recordRunEvent('run.ended', {
+    status,
+    exitCode: exitCode ?? null,
+    durationMs: durationMs ?? null,
+    error: error ?? null,
+    commands: Array.isArray(commands) ? commands : [],
+    outputs: Array.isArray(outputs) ? outputs : [],
+  }, {
+    actor,
+    links: { run: runId },
+    project: { root: '.', subject: subject ?? null },
+  })
+}
+
+function appendDecisionEvent(decision, type = 'decision.recorded', extra = {}) {
+  if (!recordingEnabled()) return null
+  try {
+    return appendEvent(PROJECT_ROOT, 'decisions', {
+      type,
+      actor: decision.actor,
+      project: { root: '.', subject: decision.subject ?? null },
+      links: { decision: decision.id },
+      payload: { version: decision.version || 1, decision, ...extra },
+    })
+  } catch (error) {
+    console.warn('[ffs-analysis] decision ledger append failed (decision still saved):', error?.message || error)
+    return null
+  }
+}
+
+function appendSupersedeEvent(targetId, supersededBy, actor) {
+  if (!recordingEnabled()) return null
+  try {
+    return appendEvent(PROJECT_ROOT, 'decisions', {
+      type: 'decision.superseded',
+      actor,
+      links: { decision: targetId },
+      payload: { decisionId: targetId, supersededBy },
+    })
+  } catch (error) {
+    console.warn('[ffs-analysis] supersede ledger append failed:', error?.message || error)
+    return null
+  }
+}
+
+function finishRecordedRun(status, extra = {}) {
+  if (!RUN || !RUN.recordRunId || RUN.recordEnded) return
+  RUN.recordEnded = true
+  recordEnded(RUN.recordRunId, {
+    actor: RUN.actor,
+    subject: RUN.subject,
+    status,
+    exitCode: extra.exitCode ?? null,
+    durationMs: RUN.recordStartedAt ? Date.now() - RUN.recordStartedAt : null,
+    error: extra.error ?? RUN.error ?? null,
+    commands: RUN.commands || [],
+    outputs: extra.outputs || null,
+  })
+  persistRun()
+}
+
+const PREFERENCE_PROFILE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-record', 'preferences', 'profile.json')
+const POLICY_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-record', 'preferences', 'policy.yaml')
+const GATE_CACHE = new Map()
+
+/** Evaluate policy constraints/standards for an operation (policy.yaml is authoritative). */
+function evaluateConstraints(op, facts = {}) {
+  let stamp = 0
+  try { stamp = existsSync(POLICY_FILE) ? statSync(POLICY_FILE).mtimeMs : 0 } catch { stamp = 0 }
+  const key = `${op}:${stamp}:${JSON.stringify(facts)}`
+  if (GATE_CACHE.has(key)) return GATE_CACHE.get(key)
+  let result
+  try {
+    const stdout = execFileSync(pythonPath(), [
+      '-m', 'ffsrecord.cli', 'gate', '--project', PROJECT_ROOT,
+      '--op', op, '--facts', JSON.stringify(facts || {}), '--json',
+    ], { cwd: PROJECT_ROOT, env: ffsEnv(), encoding: 'utf8', timeout: 60000 })
+    result = JSON.parse(stdout)
+  } catch (error) {
+    // The gate CLI exits 1 when a constraint fails; that is a result, not an infrastructure
+    // error, so parse the JSON body before falling back to a fail-open advisory object.
+    try {
+      result = JSON.parse(String(error?.stdout || ''))
+    } catch {
+      result = { op, facts, allowed: true, constraints: [], standards: [], failures: [], standardFailures: [], error: String(error?.message || error) }
+    }
+  }
+  if (GATE_CACHE.size > 12) GATE_CACHE.clear()
+  GATE_CACHE.set(key, result)
+  return result
+}
+const PREFERENCE_CACHE = new Map()
+
+function preferenceContext(params = {}) {
+  const task = Array.isArray(params.task) ? params.task[0] : params.task
+  return {
+    task: task || null,
+    modality: 'func',
+    stage: 'qc',
+  }
+}
+
+function resolvePreferences(params = {}) {
+  if (!existsSync(PREFERENCE_PROFILE_FILE)) {
+    return { available: false, effective: null, rungs: [], applied: [], context: preferenceContext(params) }
+  }
+  let stamp
+  try { stamp = statSync(PREFERENCE_PROFILE_FILE).mtimeMs } catch { stamp = 0 }
+  const context = preferenceContext(params)
+  const key = `${stamp}:${JSON.stringify(context)}`
+  if (PREFERENCE_CACHE.has(key)) return PREFERENCE_CACHE.get(key)
+  let result
+  try {
+    const stdout = execFileSync(pythonPath(), [
+      '-m', 'ffsrecord.cli', 'resolve',
+      '--project', PROJECT_ROOT,
+      '--context', JSON.stringify(context),
+      '--json',
+    ], { cwd: PROJECT_ROOT, env: ffsEnv(), encoding: 'utf8', timeout: 60000 })
+    const resolved = JSON.parse(stdout)
+    result = {
+      available: true,
+      context,
+      effective: resolved.effective || null,
+      rungs: (resolved.rungs || []).map((rung) => ({
+        rung: rung.rung, name: rung.name,
+        items: (rung.items || []).map((item) => ({
+          id: item.id || null, version: item.version ?? null, kind: item.kind || null,
+          action: item.recommendation?.action || item.text || null, status: item.status || null,
+        })),
+      })),
+      applied: resolved.applied || [],
+    }
+  } catch (error) {
+    result = { available: false, error: String(error?.message || error).split('\n')[0], context }
+  }
+  if (PREFERENCE_CACHE.size > 8) PREFERENCE_CACHE.clear()
+  PREFERENCE_CACHE.set(key, result)
+  return result
+}
+
+function preferencesSummary(params = {}) {
+  const resolved = resolvePreferences(params)
+  return {
+    available: resolved.available,
+    context: resolved.context,
+    effective: resolved.effective,
+    rungs: (resolved.rungs || []).filter((rung) => rung.items.length),
+    applied: (resolved.applied || []).filter((entry) => entry.applied).map((entry) => ({
+      id: entry.id, version: entry.version, rung: entry.rungName,
+    })),
+    error: resolved.error || null,
+  }
+}
+
+// ------------------------------------------------------------------ autoproc planner
+function autoprocModel() {
+  const sources = [
+    path.join(PROJECT_ROOT, 'reference', 'fastfuncstuff', 'fastfuncstuff', 'cli', 'autoproc.py'),
+    path.join(PROJECT_ROOT, 'reference', 'fastfuncstuff', 'fastfuncstuff', 'autoproc', 'config.py'),
+  ]
+  const key = sources.map((file) => {
+    try {
+      const stats = statSync(file)
+      return `${file}:${stats.mtimeMs}:${stats.size}`
+    } catch {
+      return file
+    }
+  }).join('|')
+  if (AUTOPROC_MODEL_CACHE && AUTOPROC_MODEL_CACHE.key === key) return AUTOPROC_MODEL_CACHE.model
+  let stdout
+  try {
+    stdout = execFileSync(pythonPath(), ['-m', 'ffsviewer.autoproc_model'], {
+      cwd: PROJECT_ROOT,
+      env: ffsEnv(),
+      timeout: 120000,
+      maxBuffer: 32 * 1024 * 1024,
+    }).toString()
+  } catch (error) {
+    const detail = String(error?.stderr || error?.message || error).split('\n').filter(Boolean).slice(-3).join(' | ')
+    throw Object.assign(new Error(`ffs_autoproc model unavailable${detail ? `: ${detail}` : ''}`), {
+      code: 'autoproc-model-unavailable',
+    })
+  }
+  let model
+  try {
+    model = JSON.parse(stdout)
+  } catch {
+    throw Object.assign(new Error('ffs_autoproc model is not valid JSON'), { code: 'autoproc-model-unavailable' })
+  }
+  if (model?.schema !== 'ffs-autoproc-model/1') {
+    throw Object.assign(new Error(`unsupported autoproc model: ${model?.schema}`), { code: 'autoproc-model-unavailable' })
+  }
+  AUTOPROC_MODEL_CACHE = { key, model }
+  return model
+}
+
+function readPipeline() {
+  if (existsSync(PIPELINE_FILE)) {
+    try {
+      return { pipe: normalizePipeline(JSON.parse(readFileSync(PIPELINE_FILE, 'utf8'))), migrated: false }
+    } catch (error) {
+      throw Object.assign(new Error(`pipeline file is invalid: ${error?.message || error}`), {
+        code: 'pipeline-invalid',
+      })
+    }
+  }
+  const state = readProjectState()
+  return { pipe: state ? migratePipelineFromState(state) : defaultPipeline(), migrated: true }
+}
+
+function writePipeline(pipe) {
+  mkdirSync(path.dirname(PIPELINE_FILE), { recursive: true })
+  const tmp = `${PIPELINE_FILE}.tmp`
+  writeFileSync(tmp, `${JSON.stringify(pipe, null, 2)}\n`)
+  renameSync(tmp, PIPELINE_FILE)
+  return pipe
+}
+
+function pipelineDetection(pipe) {
+  try {
+    const scan = scanBids({ bidsDir: pipe.scope.bidsDir })
+    return detectionFromScan(scan, pipe.scope.subject)
+  } catch (error) {
+    throw Object.assign(new Error(`BIDS scan failed: ${error?.message || error}`), {
+      code: 'bids-invalid',
+    })
+  }
+}
+
+const DECISION_ACTIONS = new Set(['accept', 'tentative', 'reject', 'undecided'])
+
+function readDecisions() {
+  const state = readProjectState()
+  return Array.isArray(state?.decisions) ? state.decisions : []
+}
+
+function decisionSummary(decisions) {
+  const count = (action) => decisions.filter((decision) => decision.action === action).length
+  return {
+    total: decisions.length,
+    accepted: count('accept'),
+    tentative: count('tentative'),
+    rejected: count('reject'),
+    undecided: count('undecided'),
+    overrides: decisions.filter((decision) => decision.override).length,
+    standards: decisions.filter((decision) => (decision.override || {}).kind === 'standard').length,
+    constraints: decisions.filter((decision) => (decision.override || {}).kind === 'constraint').length,
+  }
+}
+
+function recordDecision(body = {}) {
+  const state = readProjectState()
+  if (!state) throw Object.assign(new Error('no plan yet: plan and run first'), { code: 'not-planned' })
+  const action = String(body.action || '')
+  if (!DECISION_ACTIONS.has(action)) {
+    throw Object.assign(new Error(`unknown decision action: ${action || '(empty)'}`), { code: 'decision-invalid' })
+  }
+  const target = body.target && typeof body.target === 'object' ? { ...body.target } : {}
+  if (!target.kind || !target.ref) {
+    throw Object.assign(new Error('a decision needs target.kind and target.ref'), { code: 'decision-invalid' })
+  }
+  const workAbs = resolveInside(state.workDir, 'workDir')
+  if (target.path) {
+    const abs = path.resolve(workAbs, String(target.path))
+    if (abs === workAbs || abs.startsWith(`${workAbs}${path.sep}`)) {
+      if (existsSync(abs)) {
+        target.path = path.relative(PROJECT_ROOT, abs)
+        target.sha256 = sha256File(abs)
+        target.bytes = statSync(abs).size
+      }
+    }
+    if (!target.sha256) delete target.sha256
+  }
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
+  const confidence = ['low', 'medium', 'high'].includes(body.confidence) ? body.confidence : null
+  const decisionKind = ['preference', 'standard', 'constraint'].includes(body.decisionKind)
+    ? body.decisionKind : 'preference'
+  if (decisionKind === 'constraint') {
+    throw Object.assign(new Error('constraints cannot be overridden; resolve the constraint or record a standard/preference departure'), {
+      code: 'decision-constraint',
+    })
+  }
+  if (decisionKind === 'standard' && !reason) {
+    throw Object.assign(new Error('departing from a standard needs a recorded reason'), { code: 'decision-invalid' })
+  }
+  const override = decisionKind === 'standard'
+    ? { kind: 'standard', reason, authority: 'user', ref: body.overrideRef ? String(body.overrideRef) : null }
+    : null
+  const cleanCapture = (value) => {
+    if (!value || typeof value !== 'object') return null
+    const sessionId = String(value.sessionId || value.inspection || '')
+    if (!/^insp-[A-Za-z0-9-]+$/.test(sessionId)) return null
+    const seq = Number(value.seq)
+    if (!Number.isInteger(seq) || seq < 0) return null
+    const stateSha256 = String(value.stateSha256 || '')
+    if (!/^[0-9a-f]{64}$/.test(stateSha256)) return null
+    return {
+      inspection: sessionId,
+      seq,
+      stateSha256,
+      coordinates: value.coordinates || null,
+      display: value.display || null,
+      capturedAt: value.capturedAt || new Date().toISOString(),
+    }
+  }
+  const captureInput = body.capture || (Array.isArray(body.evidence?.visual) ? body.evidence.visual : [])
+  const captures = (Array.isArray(captureInput) ? captureInput : [captureInput]).map(cleanCapture)
+  if ((Array.isArray(captureInput) ? captureInput.length : 1) && captures.some((capture) => !capture)) {
+    throw Object.assign(new Error('visual evidence needs {sessionId, seq, stateSha256}'), { code: 'decision-invalid' })
+  }
+  const evidence = { visual: captures.filter(Boolean).slice(0, 5) }
+  const at = new Date().toISOString()
+  const actor = { kind: 'user', surface: 'analysis-tab' }
+  const rationale = reason
+    ? { text: reason, unknown: false, source: 'user' }
+    : { text: null, unknown: true, source: 'user' }
+  const existing = readDecisions()
+  const reviseId = body.decisionId ? String(body.decisionId) : null
+  const supersedesId = body.supersedes ? String(body.supersedes) : null
+  let record
+  let decisions
+  let eventType = 'decision.recorded'
+  let supersededTarget = null
+
+  if (reviseId) {
+    const previous = existing.find((decision) => decision.id === reviseId)
+    if (!previous) throw Object.assign(new Error(`unknown decision to revise: ${reviseId}`), { code: 'decision-invalid' })
+    record = {
+      ...previous,
+      action,
+      target,
+      rationale,
+      confidence,
+      decisionKind: body.decisionKind ? decisionKind : (previous.decisionKind || 'preference'),
+      override: body.decisionKind ? override : (previous.override || null),
+      evidence: evidence.visual.length ? evidence : (previous.evidence || evidence),
+      at,
+      updatedAt: at,
+      version: (Number(previous.version) || 1) + 1,
+      actor,
+    }
+    decisions = existing.map((decision) => (decision.id === reviseId ? record : decision))
+    eventType = 'decision.revised'
+  } else {
+    record = {
+      id: `dec-${Date.now().toString(36)}`,
+      at,
+      action,
+      target,
+      rationale,
+      confidence,
+      decisionKind,
+      override,
+      evidence,
+      actor,
+      subject: state.params?.subject ?? null,
+      run: { startedAt: RUN?.startedAt || null, script: state.script },
+      pipelineVersion: state.pipeline?.version ?? null,
+      version: 1,
+    }
+    if (supersedesId) {
+      const targetDecision = existing.find((decision) => decision.id === supersedesId)
+      if (!targetDecision) throw Object.assign(new Error(`unknown decision to supersede: ${supersedesId}`), { code: 'decision-invalid' })
+      record.supersedes = supersedesId
+      supersededTarget = {
+        ...targetDecision,
+        status: 'superseded',
+        supersededBy: record.id,
+        supersededAt: at,
+      }
+      decisions = existing.map((decision) => (decision.id === supersedesId ? supersededTarget : decision)).concat(record)
+    } else {
+      decisions = [...existing, record]
+    }
+  }
+
+  appendDecisionEvent(record, eventType, supersedesId ? { supersedes: supersedesId } : {})
+  if (supersededTarget) appendSupersedeEvent(supersedesId, record.id, actor)
+  writeProjectState({ ...state, decisions, record: { decisions: 'work/ffs-record/decisions' } })
+  return {
+    ok: true,
+    decision: record,
+    revised: Boolean(reviseId),
+    superseded: supersededTarget ? supersedesId : null,
+    decisions,
+    summary: decisionSummary(decisions),
+  }
+}
+
+function commandFileFacts(rel) {
+  const abs = resolveInside(rel, 'command script')
+  const exists = existsSync(abs)
+  return {
+    abs,
+    exists,
+    sha256: exists ? sha256File(abs) : null,
+    bytes: exists ? statSync(abs).size : null,
+  }
+}
+
+function inspectCommands(pipe) {
+  const commands = normalizeCommands(pipe.commands)
+  const validation = validateCommands(commands, {
+    checkFile: (rel) => commandFileFacts(rel),
+  })
+  return { commands, validation }
+}
+
+function freezeCommands(commands) {
+  const at = new Date().toISOString()
+  return normalizeCommands(commands).map((command) => {
+    if (!command.scriptPath) return command
+    const facts = commandFileFacts(command.scriptPath)
+    if (!facts.exists) return command
+    return { ...command, frozen: { sha256: facts.sha256, bytes: facts.bytes, at } }
+  })
+}
+
+function pipelineScratchRuns() {
+  return readProvenanceList(TOOL_RUNS_FILE).slice(-6).reverse().map((record) => ({
+    id: record.id,
+    at: record.at,
+    argv: record.argv,
+    cwd: record.cwd,
+    exitCode: record.exitCode,
+    durationMs: record.durationMs,
+    ok: record.ok,
+  }))
+}
+
+function pipelineView(pipe, { migrated = false } = {}) {
+  const model = autoprocModel()
+  const detection = pipelineDetection(pipe)
+  const subjectExists = (detection.subjects || []).includes(String(pipe.scope.subject))
+  const validation = validatePipeline({ pipeline: pipe, model, detection, subjectExists })
+  const commandState = inspectCommands(pipe)
+  validation.errors = [...validation.errors, ...commandState.validation.errors]
+  validation.warnings = [...validation.warnings, ...commandState.validation.warnings]
+  validation.ok = validation.errors.length === 0
+  const resolved = resolvePipelineArgv({
+    pipeline: pipe,
+    model,
+    resolvePath: (rel, label) => resolveInside(rel, label),
+  })
+  return {
+    ok: true,
+    migrated,
+    schema: pipe.schema,
+    version: pipe.version,
+    pipeline: pipe,
+    detection,
+    validation,
+    argv: resolved.args,
+    argvOk: resolved.ok,
+    argvErrors: resolved.errors || [],
+    outRel: resolved.outRel || null,
+    command: resolved.ok ? `ffs_autoproc ${formatArgv(resolved.args.slice(2))}` : '',
+    stages: stagePlan({ model, pipeline: pipe, detection }).map((stage) => ({
+      ...stage,
+      explanation: explainStage(stage),
+    })),
+    commands: commandState.commands,
+    commandValidation: commandState.validation,
+    scratch: pipelineScratchRuns(),
+    recipes: model.recipes.map(({ id, description }) => ({ id, description })),
+    coverage: Object.fromEntries(model.recipes.map((recipe) => {
+      const plan = stagePlan({ model, pipeline: { ...pipe, recipe: recipe.id }, detection })
+      return [recipe.id, { included: plan.filter((stage) => stage.included).length, total: plan.length }]
+    })),
+    flags: Object.fromEntries(model.groups.flatMap((group) => group.flags).map((flag) => [flag.dest, {
+      flag: flag.flag, help: flag.help, kind: flag.kind, choices: flag.choices, default: flag.default,
+      action: flag.action, type: flag.type, nargs: flag.nargs,
+      path: (model.pathFlags || []).includes(flag.dest),
+    }])),
+    groups: model.groups.map((group) => ({
+      id: group.id, title: group.title, flags: group.flags.map((flag) => flag.dest),
+    })),
+    pathFlags: model.pathFlags || [],
+    totals: model.totals,
+    history: Array.isArray(pipe.history) ? pipe.history.slice(-10).reverse() : [],
+    modelSource: model.source?.sha256 ? model.source.sha256.slice(0, 12) : null,
+  }
+}
+
+function savePipeline(body = {}, actor = 'user') {
+  const incoming = body && body.pipeline ? body.pipeline : body
+  const current = readPipeline()
+  const refreeze = Boolean(body.refreeze)
+  let commands = normalizeCommands(incoming?.commands ?? current.pipe.commands)
+  if (refreeze) commands = commands.map((command) => (command.scriptPath ? { ...command, frozen: null } : command))
+  const pipe = normalizePipeline({
+    ...current.pipe,
+    ...incoming,
+    scope: { ...current.pipe.scope, ...(incoming?.scope || {}) },
+    overrides: incoming?.overrides ?? current.pipe.overrides,
+    commands,
+    history: current.pipe.history,
+  })
+  const view = pipelineView(pipe)
+  if (!view.validation.ok) {
+    throw Object.assign(new Error('pipeline validation failed'), {
+      code: 'pipeline-invalid',
+      details: { errors: view.validation.errors, warnings: view.validation.warnings },
+    })
+  }
+  if (!view.argvOk) {
+    throw Object.assign(new Error('pipeline command could not be resolved'), {
+      code: 'pipeline-invalid',
+      details: { errors: view.argvErrors },
+    })
+  }
+  pipe.commands = freezeCommands(pipe.commands)
+  pipe.version = (current.pipe.version || 0) + 1
+  pipe.history = [...(current.pipe.history || []), {
+    version: pipe.version,
+    at: new Date().toISOString(),
+    actor: typeof actor === 'string' ? actor : (actor?.kind || 'user'),
+    summary: summarizePipelineChange(current.pipe, pipe),
+  }].slice(-50)
+  writePipeline(pipe)
+  return pipelineView(pipe)
+}
+
+function paramsFromPipeline(pipe) {
+  const overrides = pipe.overrides || {}
+  const surfaceTarget = Array.isArray(overrides.surface_target)
+    ? overrides.surface_target
+    : (overrides.surface_target ? [overrides.surface_target] : [])
+  return {
+    ...PLAN_DEFAULTS,
+    bidsDir: pipe.scope.bidsDir,
+    subject: pipe.scope.subject,
+    session: pipe.scope.session[0] || '',
+    task: pipe.scope.task[0] || '',
+    recipe: pipe.recipe || null,
+    workDir: pipe.scope.workDir,
+    noQc: overrides.no_qc === undefined ? PLAN_DEFAULTS.noQc : Boolean(overrides.no_qc),
+    device: overrides.device || PLAN_DEFAULTS.device,
+    anat: overrides.anat || null,
+    surfaceTarget,
+    surfaceGlm: Boolean(overrides.surface_glm),
+  }
+}
+
+function summarizePipelineChange(previous, next) {
+  const parts = []
+  if (previous.recipe !== next.recipe) {
+    parts.push(`recipe ${previous.recipe || 'defaults'} -> ${next.recipe || 'defaults'}`)
+  }
+  const keys = [...new Set([...Object.keys(previous.overrides || {}), ...Object.keys(next.overrides || {})])]
+  const changed = keys.filter((key) => JSON.stringify(previous.overrides?.[key]) !== JSON.stringify(next.overrides?.[key]))
+  if (changed.length) parts.push(`${changed.length} override${changed.length === 1 ? '' : 's'} (${changed.join(', ')})`)
+  if (JSON.stringify(previous.scope) !== JSON.stringify(next.scope)) parts.push('scope')
+  return parts.join('; ') || 'saved'
+}
+
+function generatePipelineScript(options = {}) {
+  if (isRunActive()) {
+    throw Object.assign(new Error('cannot generate a script while a run is active'), { code: 'run-busy' })
+  }
+  const { pipe } = readPipeline()
+  const view = pipelineView(pipe)
+  if (!view.validation.ok) {
+    throw Object.assign(new Error('pipeline validation failed'), {
+      code: 'pipeline-invalid',
+      details: { errors: view.validation.errors, warnings: view.validation.warnings },
+    })
+  }
+  if (!view.argvOk) {
+    throw Object.assign(new Error('pipeline command could not be resolved'), {
+      code: 'pipeline-invalid',
+      details: { errors: view.argvErrors },
+    })
+  }
+  const gate = evaluateConstraints('plan', {
+    subjectExists: (view.detection?.subjects || []).includes(String(pipe.scope.subject)),
+    bidsDir: pipe.scope.bidsDir,
+    datasetDescription: (() => {
+      try {
+        return existsSync(path.join(resolveInside(pipe.scope.bidsDir, 'bidsDir'), 'dataset_description.json'))
+      } catch {
+        return false
+      }
+    })(),
+  })
+  if (!gate.allowed) {
+    throw Object.assign(new Error('a project constraint blocks planning'), {
+      code: 'constraint-violation',
+      details: { gate },
+    })
+  }
+  const actor = options.actor || { kind: 'unknown', reason: 'no-actor' }
+  const recordId = newRunId()
+  const recordedAt = Date.now()
+  recordStarted(recordId, {
+    mode: 'plan', actor, subject: pipe.scope.subject, script: view.outRel,
+    log: view.outRel.replace(/\.sh$/, '.log'), workDir: pipe.scope.workDir,
+    extra: { pipeline: { version: pipe.version, recipe: pipe.recipe } },
+  })
+  mkdirSync(path.dirname(resolveInside(view.outRel, 'out')), { recursive: true })
+  let stdout = ''
+  try {
+    stdout = execFileSync(pythonPath(), view.argv, {
+      cwd: PROJECT_ROOT,
+      env: ffsEnv(),
+      timeout: 240000,
+      maxBuffer: 32 * 1024 * 1024,
+    }).toString()
+  } catch (error) {
+    const detail = String(error?.stderr || error?.stdout || error?.message || error).split('\n').filter(Boolean).slice(-4).join(' | ')
+    recordEnded(recordId, { actor, subject: pipe.scope.subject, status: 'failed', durationMs: Date.now() - recordedAt, error: detail || 'ffs_autoproc failed' })
+    throw Object.assign(new Error(`ffs_autoproc exited with an error${detail ? `: ${detail}` : ''}`), {
+      code: 'generate-failed',
+    })
+  }
+  const scriptRel = view.outRel
+  const scriptText = readFileSync(resolveInside(scriptRel, 'script'), 'utf8')
+  const previous = readProjectState()
+  const state = {
+    source: 'live',
+    plannedAt: new Date().toISOString(),
+    params: paramsFromPipeline(pipe),
+    pipeline: {
+      file: path.relative(PROJECT_ROOT, PIPELINE_FILE),
+      version: pipe.version,
+      outRel: scriptRel,
+    },
+    script: scriptRel,
+    log: scriptRel.replace(/\.sh$/, '.log'),
+    workDir: pipe.scope.workDir,
+    // Preferences are advisory context: the generated script's scientific flags are never
+    // changed by an inferred preference; the applied ids/versions are recorded for the package.
+    preferencesUsed: (() => {
+      const resolved = resolvePreferences(pipe.scope)
+      return resolved.available
+        ? (resolved.applied || []).filter((entry) => entry.applied)
+          .map((entry) => ({ id: entry.id, version: entry.version, rung: entry.rungName }))
+        : []
+    })(),
+    // Re-generating a script must not erase the judgment records already attached to the plan,
+    // and pre-plan cohort decisions recorded in the fallback file are folded in once.
+    decisions: (() => {
+      const existing = Array.isArray(previous?.decisions) ? previous.decisions : []
+      const seen = new Set(existing.map((decision) => decision.id))
+      const merged = [...existing]
+      for (const decision of readCohortDecisions()) {
+        if (decision?.id && !seen.has(decision.id)) {
+          merged.push(decision)
+          seen.add(decision.id)
+        }
+      }
+      return merged
+    })(),
+  }
+  writeProjectState(state)
+  recordEnded(recordId, {
+    actor, subject: pipe.scope.subject, status: 'completed', exitCode: 0,
+    durationMs: Date.now() - recordedAt,
+    outputs: [{ path: scriptRel, sha256: createHash('sha256').update(scriptText).digest('hex') }],
+  })
+  return {
+    ok: true,
+    version: pipe.version,
+    script: scriptRel,
+    log: state.log,
+    command: view.command,
+    argv: view.argv,
+    stages: parseStages(scriptText).length,
+    plan: view.stages,
+    warnings: view.validation.warnings,
+    scriptHead: scriptText.split('\n').slice(0, 64).join('\n'),
+    scriptSha256: createHash('sha256').update(scriptText).digest('hex'),
+    generatedAt: state.plannedAt,
+    output: stdout.trim().split('\n').filter(Boolean).slice(-4).join('\n'),
   }
 }
 
@@ -929,7 +1743,7 @@ function ffsEnv() {
   return env
 }
 
-function runPlan(overrides = {}) {
+function runPlan(overrides = {}, options = {}) {
   let params
   let paths
   try {
@@ -940,6 +1754,14 @@ function runPlan(overrides = {}) {
     return Promise.reject(error)
   }
   const python = process.env.FFS_PYTHON || path.join(PROJECT_ROOT, '.venv', 'bin', 'python')
+  const actor = options.actor || { kind: 'unknown', reason: 'no-actor' }
+  const recordId = newRunId()
+  const recordedAt = Date.now()
+  const scriptRel = path.relative(PROJECT_ROOT, paths.outAbs)
+  recordStarted(recordId, {
+    mode: 'plan', actor, subject: params.subject, script: scriptRel,
+    log: scriptRel.replace(/\.sh$/, '.log'), workDir: path.relative(PROJECT_ROOT, paths.workAbs),
+  })
   return new Promise((resolve, reject) => {
     let child
     try {
@@ -971,6 +1793,7 @@ function runPlan(overrides = {}) {
         const detail = (stderr || stdout).split('\n').filter(Boolean).slice(-4).join(' | ')
         const error = new Error(`ffs_autoproc exited ${code}${detail ? `: ${detail}` : ''}`)
         error.code = 'plan-failed'
+        recordEnded(recordId, { actor, subject: params.subject, status: 'failed', exitCode: code, durationMs: Date.now() - recordedAt, error: error.message })
         reject(error)
         return
       }
@@ -988,6 +1811,11 @@ function runPlan(overrides = {}) {
           workDir: path.relative(PROJECT_ROOT, paths.workAbs),
         }
         writeProjectState(state)
+        recordEnded(recordId, {
+          actor, subject: params.subject, status: 'completed', exitCode: 0,
+          durationMs: Date.now() - recordedAt,
+          outputs: [{ path: scriptRel, sha256: sha256File(paths.outAbs) }],
+        })
         const snapshot = buildLiveSnapshot(state)
         resolve({
           ok: true,
@@ -1019,13 +1847,24 @@ function runSummary() {
   }
 }
 
-function startRun() {
+function startRun(options = {}) {
   ensureRunLoaded()
   if (isRunActive()) throw Object.assign(new Error('a run is already in progress'), { code: 'run-busy' })
   const state = readProjectState()
   if (!state) throw Object.assign(new Error('no plan yet: use Plan pipeline first'), { code: 'not-planned' })
   const scriptAbs = resolveInside(state.script, 'script')
   if (!existsSync(scriptAbs)) throw Object.assign(new Error(`script not found: ${state.script}`), { code: 'not-planned' })
+  const runGate = evaluateConstraints('run', {
+    runActive: false,
+    subjectExists: Boolean(state.params?.subject),
+    scriptExists: true,
+  })
+  if (!runGate.allowed) {
+    throw Object.assign(new Error('a project constraint blocks running this plan'), {
+      code: 'constraint-violation',
+      details: { gate: runGate },
+    })
+  }
   const workAbs = resolveInside(state.workDir, 'workDir')
   const logAbs = runLogPath(state)
   mkdirSync(path.dirname(logAbs), { recursive: true })
@@ -1052,8 +1891,22 @@ function startRun() {
     workDir: state.workDir,
     error: null,
     stageTimes: {},
+    subject: state.params?.subject ?? null,
+    actor: options.actor || { kind: 'unknown', reason: 'no-actor' },
+    recordRunId: newRunId(),
+    recordStartedAt: Date.now(),
+    recordEnded: false,
   }
   persistRun()
+  recordStarted(RUN.recordRunId, {
+    mode: 'run',
+    actor: RUN.actor,
+    subject: RUN.subject,
+    script: state.script,
+    log: state.log,
+    workDir: state.workDir,
+    extra: { pipeline: state.pipeline || null },
+  })
   if (JOB_SERVICE) {
     try {
       RUN.dshJobId = JOB_SERVICE.start({
@@ -1128,19 +1981,161 @@ function startRun() {
     RUN.finishedAt = new Date().toISOString()
     finishStage()
     try { out.end() } catch { /* already closed */ }
+    finishRecordedRun('failed', { error: RUN.error })
     persistRun()
   })
   child.on('exit', (code, signal) => {
     RUN.finishedAt = new Date().toISOString()
     finishStage()
-    if (code === 0) RUN.status = 'completed'
-    else if (RUN.status === 'stopping' || signal) RUN.status = 'stopped'
-    else RUN.status = 'failed'
-    if (code !== 0 && !RUN.error) RUN.error = `exit ${code}${signal ? ` (${signal})` : ''}`
-    try { out.end() } catch { /* already closed */ }
+    if (code !== 0) {
+      if (RUN.status === 'stopping' || signal) RUN.status = 'stopped'
+      else RUN.status = 'failed'
+      if (!RUN.error) RUN.error = `exit ${code}${signal ? ` (${signal})` : ''}`
+      try { out.end() } catch { /* already closed */ }
+      finishRecordedRun(RUN.status, { exitCode: code })
+      persistRun()
+      return
+    }
+    let commands = []
+    try { commands = normalizeCommands(readPipeline().pipe.commands) } catch { commands = [] }
+    if (RUN.status === 'stopping') {
+      RUN.status = 'stopped'
+      try { out.end() } catch { /* already closed */ }
+      finishRecordedRun('stopped')
+      persistRun()
+      return
+    }
+    if (!commands.length) {
+      RUN.status = 'completed'
+      try { out.end() } catch { /* already closed */ }
+      finishRecordedRun('completed', { exitCode: 0 })
+      persistRun()
+      return
+    }
+    RUN.status = 'running-commands'
+    RUN.commands = commands.map((command) => ({
+      id: command.id,
+      name: command.name,
+      argv: command.argv,
+      scriptPath: command.scriptPath,
+      status: 'pending',
+      exitCode: null,
+      durationMs: null,
+    }))
     persistRun()
+    runPipelineCommands(commands, write).then((result) => {
+      RUN.finishedAt = new Date().toISOString()
+      RUN.status = result.cancelled ? 'stopped' : (result.ok ? 'completed' : 'commands-failed')
+      if (!result.ok && !result.cancelled && !RUN.error) RUN.error = 'a command step failed'
+      try { out.end() } catch { /* already closed */ }
+      finishRecordedRun(RUN.status, { exitCode: 0, outputs: result.records || [] })
+      persistRun()
+    }).catch((error) => {
+      RUN.finishedAt = new Date().toISOString()
+      RUN.status = 'commands-failed'
+      RUN.error = String(error?.message || error)
+      try { out.end() } catch { /* already closed */ }
+      finishRecordedRun('commands-failed', { error: RUN.error })
+      persistRun()
+    })
   })
   return runSummary()
+}
+
+function spawnPipelineCommand(command, workAbs, write) {
+  return new Promise((resolve) => {
+    const started = Date.now()
+    let executable
+    let args
+    if (command.scriptPath) {
+      const scriptAbs = resolveInside(command.scriptPath, 'command script')
+      if (!existsSync(scriptAbs)) {
+        resolve({ exitCode: 127, durationMs: 0, error: `script missing: ${command.scriptPath}`, outputs: [], missing: [] })
+        return
+      }
+      executable = '/bin/bash'
+      args = [scriptAbs]
+    } else {
+      executable = resolveToolExecutable(path.basename(command.argv[0]))
+      if (!executable) {
+        resolve({ exitCode: 127, durationMs: 0, error: `tool not found: ${command.argv[0]}`, outputs: [], missing: [] })
+        return
+      }
+      args = command.argv.slice(1)
+    }
+    const cwd = command.cwd ? resolveInside(command.cwd, 'command cwd') : workAbs
+    if (!existsSync(cwd)) {
+      resolve({ exitCode: 1, durationMs: 0, error: `cwd not found: ${command.cwd}`, outputs: [], missing: [] })
+      return
+    }
+    write(`\n== command ${command.name}: ${command.scriptPath || command.argv.join(' ')} ==\n`)
+    let child
+    try {
+      child = spawn(executable, args, {
+        cwd,
+        env: { ...ffsEnv(), ...(command.env || {}) },
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+    } catch (error) {
+      resolve({ exitCode: 1, durationMs: 0, error: String(error?.message || error), outputs: [], missing: [] })
+      return
+    }
+    RUN.commandPid = child.pid
+    const stdout = []
+    const stderr = []
+    child.stdout.on('data', (chunk) => { stdout.push(String(chunk)); write(chunk) })
+    child.stderr.on('data', (chunk) => { stderr.push(String(chunk)); write(chunk) })
+    const finish = (exitCode, error, signalName) => {
+      RUN.commandPid = null
+      const outputs = (command.expect || []).map((rel) => (path.isAbsolute(rel) ? rel : path.resolve(cwd, rel)))
+      const missing = outputs.filter((file) => !existsSync(file))
+      resolve({
+        exitCode: exitCode === null ? 1 : exitCode,
+        signal: signalName || null,
+        durationMs: Date.now() - started,
+        error: error || null,
+        outputs: artifactHashes(outputs),
+        missing,
+        stdoutTail: stdout.join('').split('\n').slice(-8).join('\n'),
+        stderrTail: stderr.join('').split('\n').slice(-8).join('\n'),
+      })
+    }
+    child.on('error', (error) => finish(1, String(error?.message || error)))
+    child.on('close', (code, signalName) => finish(code, null, signalName))
+  })
+}
+
+function runPipelineCommands(commands, write) {
+  const state = readProjectState()
+  const workAbs = state ? resolveInside(state.workDir, 'workDir') : PROJECT_ROOT
+  return runCommandList({
+    commands,
+    shouldStop: () => RUN?.status === 'stopping',
+    onUpdate: (update) => {
+      if (!RUN || !Array.isArray(RUN.commands)) return
+      const record = RUN.commands[update.index]
+      if (!record) return
+      record.status = update.status
+      if (update.record) {
+        record.exitCode = update.record.exitCode ?? null
+        record.durationMs = update.record.durationMs ?? null
+        record.error = update.record.error || null
+        record.outputs = update.record.outputs || []
+        record.missing = update.record.missing || []
+      }
+      persistRun()
+    },
+    spawnOne: (command) => spawnPipelineCommand(command, workAbs, write),
+  }).then((result) => {
+    if (!result.ok && !result.cancelled && result.failedAt != null) {
+      const command = commands[result.failedAt]
+      const record = result.records[result.failedAt]
+      RUN.error = `${command?.name || 'command'} failed (exit ${record?.exitCode ?? '?'})${record?.error ? `: ${record.error}` : ''}`
+      persistRun()
+    }
+    return result
+  })
 }
 
 function cancelRun() {
@@ -1150,10 +2145,11 @@ function cancelRun() {
   }
   RUN.status = 'stopping'
   persistRun()
+  const pid = RUN.commandPid || RUN.pid
   try {
-    process.kill(-RUN.pid, 'SIGTERM')
+    process.kill(-pid, 'SIGTERM')
   } catch {
-    try { process.kill(RUN.pid, 'SIGTERM') } catch (error) {
+    try { process.kill(pid, 'SIGTERM') } catch (error) {
       throw Object.assign(new Error(`could not stop the run: ${error?.message || error}`), { code: 'cancel-failed' })
     }
   }
@@ -1219,17 +2215,89 @@ function writeSettled(record) {
   return record
 }
 
-function settleProject() {
+function settleProject(options = {}) {
   const state = readProjectState()
   if (!state) throw Object.assign(new Error('no plan yet: plan and run first'), { code: 'not-planned' })
   const view = runView(state)
   if (view.status !== 'completed') {
     throw Object.assign(new Error('the plan has not completed: run it before settling'), { code: 'not-run' })
   }
+  let standardOverrideApplied = null
+  const recordedDecisions = readDecisions()
+  const settleGate = evaluateConstraints('settle', {
+    hasDecisions: recordedDecisions.length > 0,
+    runCompleted: view.status === 'completed',
+  })
+  if (!settleGate.allowed) {
+    throw Object.assign(new Error('a project constraint blocks settling'), {
+      code: 'constraint-violation',
+      details: { gate: settleGate },
+    })
+  }
+  if (settleGate.standardFailures.length && !options.acknowledgeNoJudgment) {
+    const failed = settleGate.standardFailures[0]
+    const reason = options.standardOverride && String(options.standardOverride.reason || '').trim()
+    if (!reason) {
+      throw Object.assign(
+        new Error(`${failed.text} No decisions were recorded. `
+          + 'Record a judgment, pass {acknowledgeNoJudgment:true}, or record a standard departure {standardOverride:{reason}}'),
+        {
+          code: 'standard-departure',
+          details: {
+            standard: failed.id,
+            text: failed.text,
+            options: ['acknowledgeNoJudgment', 'standardOverride.reason'],
+            gate: settleGate,
+          },
+        },
+      )
+    }
+    const override = recordDecision({
+      action: 'accept',
+      target: { kind: 'process', ref: 'settle' },
+      reason,
+      decisionKind: 'standard',
+      overrideRef: 'settle',
+    })
+    standardOverrideApplied = override.decision
+  } else if (settleGate.standardFailures.length && options.acknowledgeNoJudgment) {
+    const acknowledged = recordDecision({
+      action: 'accept',
+      target: { kind: 'process', ref: 'settle' },
+      reason: 'acknowledged without a recorded QC judgment',
+      decisionKind: 'standard',
+      overrideRef: 'settle',
+    })
+    standardOverrideApplied = acknowledged.decision
+  }
+  const actionable = readDecisions().filter((decision) => decision.status !== 'superseded' && decision.status !== 'withdrawn')
+  const openDecisions = actionable.filter((decision) => decision.action === 'tentative' || decision.action === 'undecided')
+  if (openDecisions.length && !options.acknowledge) {
+    throw Object.assign(new Error(`${openDecisions.length} open decision(s) need acknowledgement before settle`), {
+      code: 'open-decisions',
+      details: {
+        open: openDecisions.map((decision) => ({
+          id: decision.id, action: decision.action, target: decision.target,
+          rationale: decision.rationale, at: decision.at,
+        })),
+      },
+    })
+  }
+  let acknowledgementId = null
+  if (openDecisions.length) {
+    const acknowledgement = recordDecision({
+      action: 'accept',
+      target: { kind: 'export', ref: 'settle' },
+      reason: options.note || `acknowledged ${openDecisions.length} open decision(s) before settle`,
+      confidence: null,
+    })
+    acknowledgementId = acknowledgement.decision.id
+  }
   const workAbs = resolveInside(state.workDir, 'workDir')
   const artifacts = listArtifacts(workAbs)
   const statsArtifact = artifacts.find((artifact) => artifact.kind === 'stats' && !/ffsremlvar/.test(artifact.name))
   const results = statsArtifact ? ensureResults(workAbs, statsArtifact.path) : null
+  const settleDecisions = readDecisions()
   const settled = {
     schema: 'ffs-analysis-settled/1',
     id: `settle-${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}`,
@@ -1244,6 +2312,7 @@ function settleProject() {
       recipe: state.params.recipe,
       workDir: state.workDir,
       script: state.script,
+      preferencesUsed: Array.isArray(state.preferencesUsed) ? state.preferencesUsed : [],
       log: state.log,
     },
     run: {
@@ -1258,7 +2327,27 @@ function settleProject() {
       bytes: artifact.bytes,
       path: artifact.path,
       sha256: sha256File(artifact.path),
+      status: artifactStatus(artifact, settleDecisions),
+      explanation: artifactExplanation(artifact.kind),
     })),
+    pipeline: (() => {
+      try {
+        const { pipe } = readPipeline()
+        return { version: pipe.version, recipe: pipe.recipe, overrides: pipe.overrides, commands: pipe.commands }
+      } catch {
+        return null
+      }
+    })(),
+    decisions: (() => {
+      const final = readDecisions()
+      return {
+        ...decisionSummary(final),
+        standardOverride: standardOverrideApplied ? standardOverrideApplied.id : null,
+        open: openDecisions.length,
+        openIds: openDecisions.map((decision) => decision.id),
+        acknowledgedId: acknowledgementId,
+      }
+    })(),
     results: results && !results.error
       ? {
         threshold: results.threshold,
@@ -1299,7 +2388,7 @@ function pad(value) {
   return String(value ?? '').padEnd(2, ' ')
 }
 
-function renderMethods(settled) {
+function renderMethods(settled, decisions = []) {
   const project = settled.project
   const results = settled.results
   const stages = settled.run.stageTimes
@@ -1308,6 +2397,13 @@ function renderMethods(settled) {
   const contrastList = results
     ? results.contrasts.map((contrast) => `${contrast.name} (peak t = ${contrast.peakT})`).join(', ')
     : 'not computed'
+  const decisionLines = decisions.length
+    ? decisions.map((decision) => `- ${decision.at}: ${decision.target?.kind || 'target'} ${decision.target?.ref || ''} - ${decision.action}${decision.decisionKind && decision.decisionKind !== 'preference' ? ` [${decision.decisionKind}]` : ''}${decision.confidence ? ` (confidence ${decision.confidence})` : ''}${decision.rationale?.unknown ? '; rationale not stated' : `; rationale: "${decision.rationale?.text || ''}"`} [actor: ${decision.actor?.kind || 'unknown'}]`).join('\n')
+    : 'No explicit judgment records were made; thresholds and defaults are software defaults.'
+  const overrides = decisions.filter((decision) => decision.override)
+  const overrideText = overrides.length
+    ? overrides.map((decision) => `- ${decision.override.kind} departure on ${decision.target?.kind || 'target'} ${decision.target?.ref || ''}: ${decision.override.reason} (authority: ${decision.override.authority || decision.actor?.kind || 'user'}${decision.override.ref ? `; ref: ${decision.override.ref}` : ''})`).join('\n')
+    : 'No standard or constraint departures were recorded.'
   return `# Methods
 
 Generated from the settled analysis (${settled.id}, ${settled.at}). Facts come from the
@@ -1355,6 +2451,17 @@ descriptive: no correction for multiple comparisons has been applied in this pro
 - Python ${settled.software.python}
 - PyTorch ${settled.software.torch || 'unknown'}
 
+## Judgment calls
+
+${decisionLines}
+
+## Overrides
+
+Preferences are free defaults; standards are recommended practice and require a recorded
+reason when departed. Constraints are not overridable in this UI.
+
+${overrideText}
+
 ## Limitations
 
 Fixed-effects (single-subject) analysis; no group level, no multiple-comparison correction.
@@ -1363,7 +2470,7 @@ The frozen script embeds absolute paths from the machine it ran on.
 `
 }
 
-function renderSteps(settled) {
+function renderSteps(settled, decisions = [], commands = []) {
   const lines = [
     '# Steps',
     '',
@@ -1383,6 +2490,18 @@ function renderSteps(settled) {
     '',
     'The script is resumable: stages with existing outputs are skipped. Its log is written',
     `next to it (\`proc_sub-${settled.project.subject}.log\`).`,
+    '',
+    '## Decisions',
+    '',
+    ...(decisions.length
+      ? decisions.map((decision) => `- ${decision.at}: ${decision.target?.kind || 'target'} ${decision.target?.ref || ''} - ${decision.action}${decision.rationale?.unknown ? ' (rationale not stated)' : ` (${decision.rationale?.text || ''})`} [${decision.actor?.kind || 'unknown'}]`)
+      : ['No decisions recorded.']),
+    '',
+    '## Post-processing commands',
+    '',
+    ...(commands.length
+      ? commands.map((command) => `- ${command.name}: ${command.scriptPath ? `bash ${command.scriptPath}` : (command.argv || []).join(' ')}`)
+      : ['None.']),
     '',
     '## Artifacts',
     '',
@@ -1515,6 +2634,139 @@ echo "setup: ok (run 'bash setup.sh --install' for a package-local venv)"
   return lock
 }
 
+const INPUT_SUFFIXES = ['.nii.gz', '.nii', '.json', '.tsv', '.tsv.gz', '.bvals', '.bvecs']
+
+function walkInputFiles(rootAbs, prefix, out = [], limit = 500) {
+  if (out.length >= limit) return out
+  let entries = []
+  try { entries = readdirSync(rootAbs, { withFileTypes: true }) } catch { return out }
+  for (const entry of entries) {
+    if (out.length >= limit) break
+    const abs = path.join(rootAbs, entry.name)
+    if (entry.isDirectory()) {
+      walkInputFiles(abs, prefix, out, limit)
+      continue
+    }
+    if (!entry.isFile()) continue
+    if (!INPUT_SUFFIXES.some((suffix) => entry.name.endsWith(suffix))) continue
+    out.push(abs)
+  }
+  return out
+}
+
+/** Hash the BIDS inputs this subject actually used. Output hashing is in settled.artifacts. */
+function collectInputChecksums(bidsDir, subject) {
+  const bidsAbs = resolveInside(bidsDir, 'bidsDir')
+  if (!existsSync(bidsAbs)) return null
+  const subjectDir = path.join(bidsAbs, `sub-${subject}`)
+  if (!existsSync(subjectDir)) return null
+  const files = walkInputFiles(subjectDir, `sub-${subject}`)
+  const rows = []
+  let totalBytes = 0
+  for (const abs of files) {
+    try {
+      const bytes = statSync(abs).size
+      rows.push({
+        path: path.relative(bidsAbs, abs),
+        bytes,
+        sha256: sha256File(abs),
+      })
+      totalBytes += bytes
+    } catch { /* unreadable input is skipped, not silently claimed */ }
+  }
+  return {
+    schema: 'ffs-analysis-inputs/1',
+    generatedAt: new Date().toISOString(),
+    bidsDir,
+    subject: `sub-${subject}`,
+    count: rows.length,
+    totalBytes,
+    files: rows.sort((a, b) => a.path.localeCompare(b.path)),
+  }
+}
+
+function writeRecordSubtree(dir, decisions) {
+  const recordDir = path.join(dir, 'record')
+  const source = path.join(PROJECT_ROOT, 'work', 'ffs-record')
+  const inspectionSource = path.join(PROJECT_ROOT, '.ffs-viewer', 'inspection')
+  mkdirSync(path.join(recordDir, 'runs'), { recursive: true })
+  mkdirSync(path.join(recordDir, 'decisions'), { recursive: true })
+  mkdirSync(path.join(recordDir, 'preferences'), { recursive: true })
+  mkdirSync(path.join(recordDir, 'inspection'), { recursive: true })
+  const copied = []
+  const copyIf = (from, to) => {
+    if (!existsSync(from)) return
+    copyFileSync(from, to)
+    copied.push(path.relative(dir, to))
+  }
+  const copyShards = (family) => {
+    const familyDir = path.join(source, family)
+    if (!existsSync(familyDir)) return 0
+    let count = 0
+    for (const name of readdirSync(familyDir).filter((item) => item.endsWith('.jsonl'))) {
+      copyIf(path.join(familyDir, name), path.join(recordDir, family, name))
+      count += 1
+    }
+    return count
+  }
+  const runShards = copyShards('runs')
+  const decisionShards = copyShards('decisions')
+  copyIf(path.join(source, 'preferences', 'profile.json'), path.join(recordDir, 'preferences', 'profile.json'))
+  copyIf(path.join(source, 'preferences', 'policy.yaml'), path.join(recordDir, 'preferences', 'policy.yaml'))
+  copyIf(path.join(source, 'preferences', 'events.jsonl'), path.join(recordDir, 'preferences', 'events.jsonl'))
+  copyIf(path.join(source, 'preferences', 'tombstones.jsonl'), path.join(recordDir, 'preferences', 'tombstones.jsonl'))
+  const evidenceSource = path.join(source, 'preferences', 'evidence')
+  let evidenceCount = 0
+  if (existsSync(evidenceSource)) {
+    mkdirSync(path.join(recordDir, 'preferences', 'evidence'), { recursive: true })
+    for (const name of readdirSync(evidenceSource).filter((item) => item.endsWith('.json'))) {
+      copyIf(path.join(evidenceSource, name), path.join(recordDir, 'preferences', 'evidence', name))
+      evidenceCount += 1
+    }
+  }
+  const versionsSource = path.join(source, 'preferences', 'versions')
+  if (existsSync(versionsSource)) {
+    const versions = readdirSync(versionsSource).filter((item) => item.endsWith('.json')).sort()
+    if (versions.length) {
+      copyIf(path.join(versionsSource, versions[versions.length - 1]), path.join(recordDir, 'preferences', 'latest-version.json'))
+    }
+  }
+
+  // Only inspection sessions actually cited by a decision need to travel; the decision carries
+  // {inspection, seq, stateSha256}, so the slice is traceable without the whole viewer history.
+  const cited = new Set()
+  for (const decision of decisions) {
+    for (const visual of ((decision.evidence || {}).visual || [])) {
+      if (visual.inspection && visual.status !== 'deleted') cited.add(String(visual.inspection))
+    }
+  }
+  const inspectionCopied = []
+  for (const sessionId of [...cited].sort()) {
+    for (const suffix of ['.jsonl', '.start.ffs']) {
+      const from = path.join(inspectionSource, `${sessionId}${suffix}`)
+      if (existsSync(from)) {
+        copyIf(from, path.join(recordDir, 'inspection', `${sessionId}${suffix}`))
+        inspectionCopied.push(sessionId)
+      }
+    }
+  }
+
+  const counts = {
+    runs: { shards: runShards },
+    decisions: { shards: decisionShards, records: decisions.length },
+    preferences: { evidence: evidenceCount },
+    inspection: { citedSessions: [...new Set(inspectionCopied)] },
+    files: copied.length,
+  }
+  let tombstones = 0
+  try {
+    const tombstoneFile = path.join(source, 'preferences', 'tombstones.jsonl')
+    if (existsSync(tombstoneFile)) tombstones = readFileSync(tombstoneFile, 'utf8').trim().split('\n').filter(Boolean).length
+  } catch { tombstones = 0 }
+  counts.tombstones = tombstones
+  return { dir: 'record', counts, files: copied }
+}
+
 function exportPackage() {
   const settled = readSettled()
   if (!settled) throw Object.assign(new Error('settle the analysis first'), { code: 'not-settled' })
@@ -1523,6 +2775,41 @@ function exportPackage() {
   const workAbs = resolveInside(settled.project.workDir, 'workDir')
   mkdirSync(path.join(dir, 'frozen'), { recursive: true })
   mkdirSync(path.join(dir, 'tables'), { recursive: true })
+
+  const decisions = readDecisions()
+  let pipelineSnapshot = null
+  try { pipelineSnapshot = readPipeline().pipe } catch { pipelineSnapshot = null }
+  const commands = Array.isArray(pipelineSnapshot?.commands) ? pipelineSnapshot.commands : []
+  writeFileSync(path.join(dir, 'decisions.json'), `${JSON.stringify(decisions, null, 2)}\n`)
+  writeFileSync(path.join(dir, 'pipeline.json'), `${JSON.stringify(pipelineSnapshot || {
+    schema: 'ffs-panel-pipeline/1',
+    version: null,
+    scope: { bidsDir: settled.project.bidsDir, subject: `sub-${settled.project.subject}`, session: [], task: [] },
+    recipe: settled.project.recipe,
+    overrides: {},
+    commands: [],
+  }, null, 2)}\n`)
+  writeFileSync(path.join(dir, 'commands.json'), `${JSON.stringify(commands, null, 2)}\n`)
+  const preferenceProfile = readPreferenceProfile(PROJECT_ROOT)
+  if (preferenceProfile) {
+    writeFileSync(path.join(dir, 'preferences.json'), `${JSON.stringify(preferenceProfile, null, 2)}\n`)
+  }
+  const recordInfo = writeRecordSubtree(dir, decisions)
+
+  // Input checksums and the run log travel with the package (R5 residual gap).
+  const inputs = collectInputChecksums(settled.project.bidsDir, settled.project.subject)
+  if (inputs) writeFileSync(path.join(dir, 'inputs.json'), `${JSON.stringify(inputs, null, 2)}\n`)
+  let runLog = null
+  if (settled.project.log) {
+    try {
+      const logAbs = resolveInside(settled.project.log, 'log')
+      if (existsSync(logAbs)) {
+        mkdirSync(path.join(dir, 'logs'), { recursive: true })
+        copyFileSync(logAbs, path.join(dir, 'logs', 'run.log'))
+        runLog = { path: 'logs/run.log', bytes: statSync(logAbs).size, sha256: sha256File(logAbs), source: settled.project.log }
+      }
+    } catch { runLog = null }
+  }
 
   const scriptSrc = resolveInside(settled.project.script, 'script')
   copyFileSync(scriptSrc, path.join(dir, 'frozen', path.basename(scriptSrc)))
@@ -1609,6 +2896,65 @@ function exportPackage() {
   }
   writeFileSync(path.join(dir, 'tables', 'contrasts.csv'), csvRows(contrastRows))
   writeFileSync(path.join(dir, 'tables', 'clusters.csv'), csvRows(clusterRows))
+  const labeledArtifacts = Array.isArray(settled.artifacts) ? settled.artifacts : []
+  writeFileSync(path.join(dir, 'tables', 'artifacts.csv'), csvRows([
+    ['name', 'kind', 'status', 'stage', 'sha256', 'explanation'],
+    ...labeledArtifacts.map((artifact) => [
+      artifact.name, artifact.kind, artifact.status || 'recorded', artifact.stage || '',
+      artifact.sha256 || '', artifact.explanation || artifactExplanation(artifact.kind),
+    ]),
+  ]))
+  const checks = [
+    ...settled.run.stageTimes.map((stage) => ({
+      check: stage.label || stage.name, kind: 'stage', ...explainStage({ id: stage.name, label: stage.label }),
+    })),
+    ...listQcFigures(workAbs).map((figure) => ({
+      check: figure.label, kind: 'qc', ...explainQc(figure),
+    })),
+  ]
+  writeFileSync(path.join(dir, 'tables', 'checks.csv'), csvRows([
+    ['check', 'kind', 'why', 'failure'],
+    ...checks.map((check) => [check.check, check.kind, check.why, check.failure]),
+  ]))
+  const artifactStatusCounts = labeledArtifacts.reduce((counts, artifact) => {
+    const status = artifact.status || 'recorded'
+    counts[status] = (counts[status] || 0) + 1
+    return counts
+  }, {})
+  const frozenScriptRel = `frozen/${path.basename(scriptSrc)}`
+  const provenance = {
+    schema: 'ffs-analysis-provenance/1',
+    generatedAt: new Date().toISOString(),
+    subject: `sub-${settled.project.subject}`,
+    dataset: settled.project.bidsDir,
+    script: { path: frozenScriptRel, sha256: sha256File(scriptSrc) },
+    inputs: inputs ? { file: 'inputs.json', sha256: sha256File(path.join(dir, 'inputs.json')), count: inputs.count } : null,
+    run: {
+      id: settled.id,
+      status: settled.run?.status || null,
+      startedAt: settled.run?.startedAt || null,
+      finishedAt: settled.run?.finishedAt || null,
+      attempts: 'record/runs/',
+    },
+    outputs: labeledArtifacts.map((artifact) => ({
+      path: artifact.path,
+      name: artifact.name,
+      kind: artifact.kind,
+      sha256: artifact.sha256 || null,
+      status: artifact.status || 'recorded',
+      derivedFrom: {
+        inputs: inputs ? 'inputs.json' : null,
+        script: frozenScriptRel,
+        run: settled.id,
+        attempts: 'record/runs/',
+      },
+    })),
+  }
+  writeFileSync(path.join(dir, 'provenance.json'), `${JSON.stringify(provenance, null, 2)}\n`)
+  try {
+    mkdirSync(path.join(dir, 'verify'), { recursive: true })
+    copyFileSync(path.join(PROJECT_ROOT, 'scripts', 'verify_record_package.py'), path.join(dir, 'verify', 'record_check.py'))
+  } catch { /* the check is helpful, not required for export */ }
 
   writeFileSync(path.join(dir, 'README.md'), `# ${settled.project.name} — reproducible analysis package
 
@@ -1624,8 +2970,15 @@ bash run.sh
 ## Layout
 
 - \`frozen/\` — the exact autoproc script, design spec and stimuli that produced the analysis
-- \`tables/\` — contrast peaks and clusters
+- \`tables/\` — contrast peaks/clusters, \`artifacts.csv\` (status + why-notes) and \`checks.csv\` (why each stage/QC matters, and what failure looks like)
 - \`STEPS.md\`, \`METHODS.md\`, \`methods.yaml\` — what ran and how to write it up
+- \`pipeline.json\`, \`commands.json\` — the planner state and post-processing steps
+- \`decisions.json\` — recorded QC verdicts with target, reason, confidence and actor
+- \`preferences.json\` — the derived preference profile (when evidence exists), with scores and session ids
+- \`record/\` — append-only audit trail: run ledger, decision events, preference events/evidence/tombstones and cited inspection slices
+- \`inputs.json\` — sha256/size for the BIDS input files this subject used
+- \`provenance.json\` — explicit output→input/script/run edges (which run and inputs produced each artifact)
+- \`logs/run.log\` — the preprocessing log (when the run produced one)
 - \`manifest.json\` — plan, software and artifact hashes
 
 ## Caveat
@@ -1634,8 +2987,62 @@ The frozen script embeds absolute paths from the machine it ran on; move/copy th
 edit \`env.sh\` to reproduce elsewhere. Group level, multiple-comparison correction and
 surface outputs are not part of this export.
 `)
-  writeFileSync(path.join(dir, 'STEPS.md'), renderSteps(settled))
-  let methodsText = renderMethods(settled)
+  let stepsText = renderSteps(settled, decisions, commands)
+  if (recordInfo && recordInfo.counts.files) {
+    stepsText += `\n## Record\n\nThe audit trail is in \`record/\`: \`runs/\` (append-only attempts), ` +
+      `\`decisions/\` (decision events), \`preferences/\` (profile, policy, events, tombstones, evidence), ` +
+      `\`inspection/\` (only sessions cited by decisions). Checksums cover every file.\n`
+  }
+  writeFileSync(path.join(dir, 'STEPS.md'), stepsText)
+  let methodsText = renderMethods(settled, decisions)
+  if (checks.length) {
+    methodsText += `\n## What the checks look for\n\n` +
+      checks.slice(0, 10).map((check) => `- **${check.check}** (${check.kind}): ${check.why} Failure looks like: ${check.failure}`).join('\n') +
+      `\n\nThe full list (with the same why/failure text) is in \`tables/checks.csv\`.\n`
+  }
+  if (labeledArtifacts.length) {
+    methodsText += `\n## Artifact statuses\n\nEach artifact carries an explicit status in ` +
+      `\`manifest.json\` and \`tables/artifacts.csv\`: ` +
+      Object.entries(artifactStatusCounts).map(([status, count]) => `${status} ${count}`).join(', ') + '. ' +
+      'Dataset artifacts frozen by settle are accepted unless a matching decision says otherwise; ' +
+      'QC figures without a decision stay undecided. Why each kind matters: ' +
+      [...new Set(labeledArtifacts.map((artifact) => artifact.kind))].slice(0, 6)
+        .map((kind) => `${kind} — ${artifactExplanation(kind)}`).join(' ') + '\n'
+  }
+  if (preferenceProfile && Array.isArray(preferenceProfile.preferences) && preferenceProfile.preferences.length) {
+    const notable = preferenceProfile.preferences.filter((record) => record.status !== 'observed')
+    if (notable.length) {
+      methodsText += `\n## Preferences considered\n\nDerived from inspection evidence (deterministic profile; ` +
+        `scores and session ids in \`preferences.json\`):\n\n` +
+        notable.map((record) => `- \`${record.id}\` v${record.version} (${record.status}` +
+          `${record.scientific ? ', scientific; explicit confirmation required' : ''}) — ` +
+          `${record.recommendation?.action || ''}; score ${record.evidence?.score ?? 'n/a'} over ` +
+          `${record.evidence?.sessions ?? 0} session(s).`).join('\n') + '\n'
+    }
+  }
+  if (recordInfo && recordInfo.counts.files) {
+    const counts = recordInfo.counts
+    methodsText += `\n## Record and audit trail\n\nThe package includes the append-only record ` +
+      `(\`record/\`). Run ledger shards: ${counts.runs.shards}; decision event shards: ${counts.decisions.shards} ` +
+      `(${counts.decisions.records} decision record(s)); preference evidence shards: ${counts.preferences.evidence}; ` +
+      `tombstones: ${counts.tombstones}. ` +
+      (counts.inspection.citedSessions.length
+        ? `Cited inspection session(s): ${counts.inspection.citedSessions.map((id) => `\`${id}\``).join(', ')} (events, captures, marks and seq-0 baseline), so each decision's visual evidence can be traced to a session/seq/state hash.`
+        : 'No decision cites a viewer inspection session.') + '\n'
+  }
+  if (provenance) {
+    methodsText += `\n## Provenance\n\n\`provenance.json\` links each of the ${provenance.outputs.length} ` +
+      `output(s) to the frozen script (\`${frozenScriptRel}\`), the packaged inputs ` +
+      `(\`inputs.json\`, ${inputs ? inputs.count : 0} file(s)) and the settled run ` +
+      `(\`${settled.id}\`; attempts in \`record/runs/\`). Artifact statuses are carried on the same edges.\n`
+  }
+  if (inputs) {
+    methodsText += `\n## Data and inputs\n\nThe packaged \`inputs.json\` records sha256 and size for ` +
+      `${inputs.count} BIDS input file(s) under \`${inputs.bidsDir}/sub-${settled.project.subject}\` ` +
+      `(${inputs.totalBytes} bytes total). ` +
+      (runLog ? `The preprocessing log is shipped at \`logs/run.log\`. ` : 'No preprocessing log was available for this run. ') +
+      `This complements the output hashes in \`manifest.json\`.\n`
+  }
   if (surfaceNames.length) {
     methodsText += `\n## Surface analysis\n\nThe same task model was fitted on the **fsaverage** cortical surface ` +
       `(stage10s surface sampling, stage12s ffs_reml), hemispheres lh/rh, with the surface GLM ` +
@@ -1729,6 +3136,8 @@ cd "$here"
 echo "== checksums =="
 shasum -a 256 -c checksums.sha256
 echo "checksums: ok"
+echo "== record/package consistency =="
+"\${FFS_PYTHON:-python3}" verify/record_check.py "$here"
 if [ "\${1:-}" = "--replay" ]; then
   source "$here/env.sh"
   work="$(mktemp -d)"
@@ -1749,7 +3158,40 @@ fi
     methodsLint,
     surface: surfaceNames.length ? { files: surfaceNames, labels: surfaceLabels } : null,
     viewer: viewerIncluded,
-    verify: { script: 'verify.sh', frozenStats: statsAbs ? path.basename(statsAbs) : null, figures: existsSync(figuresDir) },
+    verify: {
+      script: 'verify.sh', frozenStats: statsAbs ? path.basename(statsAbs) : null,
+      figures: existsSync(figuresDir), recordCheck: 'verify/record_check.py',
+    },
+    pipeline: pipelineSnapshot ? {
+      version: pipelineSnapshot.version,
+      recipe: pipelineSnapshot.recipe,
+      overrides: pipelineSnapshot.overrides,
+      commands: commands.length,
+    } : null,
+    artifactStatus: artifactStatusCounts,
+    provenance: { file: 'provenance.json', sha256: sha256File(path.join(dir, 'provenance.json')),
+      outputs: provenance.outputs.length, inputs: inputs ? inputs.count : 0 },
+    checks: { file: 'tables/checks.csv', count: checks.length },
+    record: recordInfo,
+    inputs: inputs ? { file: 'inputs.json', count: inputs.count, totalBytes: inputs.totalBytes, sha256: sha256File(path.join(dir, 'inputs.json')) } : null,
+    logs: runLog ? { run: runLog } : null,
+    preferencesUsed: Array.isArray(settled.project.preferencesUsed) ? settled.project.preferencesUsed : [],
+    preferences: preferenceProfile ? {
+      file: 'preferences.json',
+      generatedAt: preferenceProfile.generatedAt,
+      count: (preferenceProfile.preferences || []).length,
+      stats: preferenceProfile.stats || {},
+      evidence: preferenceProfile.evidence || null,
+    } : null,
+    commands: commands.map((command) => ({
+      id: command.id,
+      name: command.name,
+      argv: command.argv,
+      scriptPath: command.scriptPath || null,
+      frozenSha256: command.frozen?.sha256 || null,
+    })),
+    decisions: decisionSummary(decisions),
+    decisionGate: settled.decisions || null,
     code: existsSync(path.join(dir, 'code', 'fastfuncstuff', 'pyproject.toml')),
   }))
 
@@ -1839,12 +3281,20 @@ function scanBids(params = {}) {
           if (!match) continue
           const events = path.join(funcDir, name.replace('_bold.nii.gz', '_events.tsv'))
           const sidecar = readJsonIf(path.join(funcDir, name.replace('.nii.gz', '.json')))
+          const echoNumbers = readdirSync(funcDir)
+            .map((entry) => /_echo-([0-9]+)_bold\.nii\.gz$/.exec(entry))
+            .filter(Boolean)
+            .map((found) => Number(found[1]))
           runs.push({
             task: match[1].replace('task-', ''),
             run: Number(match[3]),
             bold: path.relative(PROJECT_ROOT, path.join(funcDir, name)),
             events: existsSync(events) ? path.relative(PROJECT_ROOT, events) : null,
             tr: sidecar?.RepetitionTime ?? null,
+            sliceTiming: Array.isArray(sidecar?.SliceTiming) && sidecar.SliceTiming.length > 0,
+            phase: existsSync(path.join(funcDir, name.replace('_bold.nii.gz', '_part-phase_bold.nii.gz'))),
+            sbref: existsSync(path.join(funcDir, name.replace('_bold.nii.gz', '_sbref.nii.gz'))),
+            echoes: echoNumbers.length ? Math.max(...echoNumbers) : 1,
           })
           if (!existsSync(events)) warnings.push(`${entry.name}/${sessionName || ''}: missing events for ${name}`)
         }
@@ -1879,6 +3329,10 @@ function scanBids(params = {}) {
       runs: subjects.reduce((total, subject) => total + subject.runs, 0),
       tasks,
       hasFieldmaps: subjects.some((subject) => subject.sessions.some((session) => session.fmapFiles > 0)),
+      hasSliceTiming: subjects.some((subject) => subject.sessions.some((session) => session.runs.some((run) => run.sliceTiming))),
+      hasPhase: subjects.some((subject) => subject.sessions.some((session) => session.runs.some((run) => run.phase))),
+      hasSbref: subjects.some((subject) => subject.sessions.some((session) => session.runs.some((run) => run.sbref))),
+      maxEchoes: subjects.reduce((max, subject) => subject.sessions.reduce((inner, session) => session.runs.reduce((deep, run) => Math.max(deep, run.echoes || 1), inner), max), 1),
     },
     warnings,
   }
@@ -1938,6 +3392,7 @@ function doctorChecks() {
 const DEFAULT_COHORT_ROOT = path.join(PROJECT_ROOT, 'work', 'ds005165')
 const GROUP_STATE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-analysis-group.json')
 const COHORT_PREFS_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-cohort-include.json')
+const COHORT_DECISIONS_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-cohort-decisions.json')
 
 /** The cohort lives beside the current subject's work dir: work/<dataset>/<subject>. */
 function currentProjectWorkDir() {
@@ -1973,6 +3428,63 @@ function writeCohortPrefs(prefs) {
   mkdirSync(path.dirname(COHORT_PREFS_FILE), { recursive: true })
   writeFileSync(COHORT_PREFS_FILE, `${JSON.stringify(prefs, null, 2)}\n`)
   return prefs
+}
+
+function readCohortDecisions() {
+  try {
+    if (existsSync(COHORT_DECISIONS_FILE)) {
+      const value = JSON.parse(readFileSync(COHORT_DECISIONS_FILE, 'utf8'))
+      return Array.isArray(value) ? value : []
+    }
+  } catch { /* empty */ }
+  return []
+}
+
+function writeCohortDecisions(decisions) {
+  mkdirSync(path.dirname(COHORT_DECISIONS_FILE), { recursive: true })
+  writeFileSync(COHORT_DECISIONS_FILE, `${JSON.stringify(decisions, null, 2)}\n`)
+  return decisions
+}
+
+/**
+ * A cohort include/exclude is a decision, not a preference toggle: it cites the subject, the
+ * cohort root and the actor. The include file stays authoritative for membership; the decision
+ * is mirrored into project state when a plan exists, or into a fallback file before planning.
+ */
+function recordCohortDecision({ subject, include, workRoot, actor, reason, source }) {
+  const at = new Date().toISOString()
+  const state = readProjectState()
+  const record = {
+    id: `dec-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    at,
+    action: include ? 'accept' : 'reject',
+    target: {
+      kind: 'cohort',
+      ref: `sub-${String(subject).replace(/^sub-/, '')}`,
+      cohortRoot: path.relative(PROJECT_ROOT, workRoot),
+    },
+    rationale: typeof reason === 'string' && reason.trim()
+      ? { text: reason.trim(), unknown: false, source: actor?.kind === 'agent' ? 'agent' : 'user' }
+      : { text: null, unknown: true, source: actor?.kind === 'agent' ? 'agent' : 'user' },
+    confidence: null,
+    actor: actor || routeActor(),
+    subject: state?.params?.subject ?? null,
+    pipelineVersion: state?.pipeline?.version ?? null,
+    evidence: {
+      kind: 'cohort-membership',
+      cohortRoot: path.relative(PROJECT_ROOT, workRoot),
+      include: Boolean(include),
+      source: source || 'cohort',
+    },
+  }
+  appendDecisionEvent(record)
+  if (state) {
+    const decisions = [...readDecisions(), record]
+    writeProjectState({ ...state, decisions, record: { decisions: 'work/ffs-record/decisions' } })
+  } else {
+    writeCohortDecisions([...readCohortDecisions(), record])
+  }
+  return record
 }
 
 function currentCohortRoot() {
@@ -2112,6 +3624,9 @@ function groupSummaryRecord(analysis) {
   })).slice(0, 40)
   return {
     ...analysis,
+    // A successful (re)run must not inherit an error from an earlier failed attempt: the panel
+    // treats any `error` field as failed.
+    error: null,
     status: 'completed',
     threshold,
     voxels: summary.voxels,
@@ -2384,6 +3899,8 @@ function exportCohortPackage(params = {}) {
   if (!validation.subjects.length) {
     throw Object.assign(new Error('cohort has no subjects to export'), { code: 'cohort-empty' })
   }
+  const cohort = discoverCohort(rootAbs)
+  const exportSubjects = cohort.subjects.filter((subject) => subject.include !== false)
   const failures = validation.subjects.filter((subject) => !subject.ok && exportSubjects.some((item) => item.id === subject.id))
   if (failures.length) {
     throw Object.assign(
@@ -2391,8 +3908,6 @@ function exportCohortPackage(params = {}) {
       { code: 'cohort-invalid', issues: failures },
     )
   }
-  const cohort = discoverCohort(rootAbs)
-  const exportSubjects = cohort.subjects.filter((subject) => subject.include !== false)
   if (!exportSubjects.length) {
     throw Object.assign(new Error('all cohort subjects are excluded'), { code: 'cohort-empty' })
   }
@@ -2444,6 +3959,17 @@ function exportCohortPackage(params = {}) {
       issues: subject.issues,
     })),
   }, null, 2)}\n`)
+  const cohortDecisions = (() => {
+    const seen = new Set()
+    const merged = []
+    for (const decision of [...readDecisions(), ...readCohortDecisions()]) {
+      if (decision?.target?.kind !== 'cohort' || !decision.id || seen.has(decision.id)) continue
+      seen.add(decision.id)
+      merged.push(decision)
+    }
+    return merged
+  })()
+  writeFileSync(path.join(dir, 'decisions.json'), `${JSON.stringify(cohortDecisions, null, 2)}\n`)
   writeFileSync(path.join(dir, 'run.sh'), cohortRunScript(exportSubjects.map((subject) => subject.id)))
   writeFileSync(path.join(dir, 'validate.py'), cohortValidateScript())
   writeFileSync(path.join(dir, 'env.sh'), `#!/usr/bin/env bash
@@ -2605,7 +4131,10 @@ function runGroupAnalysis(params = {}) {
     }
   }
 
-  const id = model === 'two-group' ? `group-${contrast}-2grp` : `group-${contrast}`
+  // Contrast labels may contain spaces/punctuation ("scenes > baseline"); use a safe tag for
+  // work dirs and file names, while keeping the original contrast string in the record.
+  const contrastTag = String(contrast).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'contrast'
+  const id = model === 'two-group' ? `group-${contrastTag}-2grp` : `group-${contrastTag}`
   const workAbs = path.join(rootAbs, id)
   mkdirSync(workAbs, { recursive: true })
   const prefix = path.join(workAbs, `${id}.nii.gz`)
@@ -2623,8 +4152,8 @@ function runGroupAnalysis(params = {}) {
     } catch { mask = null }
   }
   const resampled = picks.map((pick) => {
-    const coefOut = path.join(workAbs, `${pick.subject.id}_${contrast}_coef.nii.gz`)
-    const tstatOut = path.join(workAbs, `${pick.subject.id}_${contrast}_tstat.nii.gz`)
+    const coefOut = path.join(workAbs, `${pick.subject.id}_${contrastTag}_coef.nii.gz`)
+    const tstatOut = path.join(workAbs, `${pick.subject.id}_${contrastTag}_tstat.nii.gz`)
     try {
       execFileSync('3dresample', [
         '-overwrite', '-master', master,
@@ -2750,7 +4279,9 @@ function readProvenanceList(file) {
 }
 
 function appendProvenance(file, record) {
-  const entries = readProvenanceList(file).slice(-199)
+  // Append-only: the ledger is the long-term record, but the legacy JSON files must not
+  // silently drop older attempts either (old behavior capped them at 200).
+  const entries = readProvenanceList(file)
   entries.push(record)
   mkdirSync(path.dirname(file), { recursive: true })
   writeFileSync(file, `${JSON.stringify(entries, null, 2)}\n`)
@@ -2796,7 +4327,145 @@ function compareArtifacts(a, b, atol = 1e-2, rtol = 1e-2) {
   }
 }
 
-function ffsToolRun(params = {}) {
+/**
+ * Import an externally edited shell script as an append-only attempt (Preserve composition).
+ * The script is hashed, the log tail captured, and it can be promoted to a frozen command step
+ * so a later run reproduces it. Nothing is executed here.
+ */
+const HISTORY_SECRET = /(token|password|secret|api[_-]?key|authorization)\s*[=:]|TOKEN=|PASSWORD=/i
+
+/**
+ * Import an interactive shell history file (zsh extended or bash plain) as an append-only
+ * attempt. Commands that look like they carry credentials are skipped, never recorded.
+ */
+function importShellHistory(params = {}, actor = { kind: 'unknown', reason: 'no-actor' }) {
+  const rel = String(params.file || '').trim()
+  if (!rel) throw Object.assign(new Error('history file path is required'), { code: 'import-invalid' })
+  const abs = resolveInside(rel, 'history file')
+  if (!existsSync(abs)) throw Object.assign(new Error(`history file not found: ${rel}`), { code: 'import-invalid' })
+  const stat = statSync(abs)
+  if (stat.size > 5 * 1024 * 1024) throw Object.assign(new Error('history file is too large to import'), { code: 'import-invalid' })
+  const limit = Math.max(1, Math.min(Number(params.limit) || 200, 1000))
+  const rawLines = readFileSync(abs, 'utf8').split('\n').map((line) => line.trim()).filter(Boolean)
+  const parsed = []
+  let skipped = 0
+  for (const line of rawLines.slice(-limit)) {
+    // zsh extended history: `: 1699999999:0;command`
+    const zsh = /^: \d+:\d+;(.*)$/.exec(line)
+    const command = (zsh ? zsh[1] : line).trim()
+    if (!command || command.startsWith('#')) continue
+    if (HISTORY_SECRET.test(command)) { skipped += 1; continue }
+    parsed.push(command)
+  }
+  const state = readProjectState()
+  const subject = state?.params?.subject ?? null
+  const attemptId = newRunId()
+  const sha256 = sha256File(abs)
+  recordRunEvent('run.imported', {
+    mode: 'shell-history',
+    subject,
+    imported: {
+      file: { path: rel, sha256, bytes: stat.size },
+      commands: parsed,
+      skippedForSecrets: skipped,
+      note: typeof params.note === 'string' && params.note.trim() ? params.note.trim() : null,
+      limit,
+    },
+    log: null,
+  }, {
+    actor,
+    links: { run: attemptId },
+    project: { root: '.', subject },
+  })
+  return {
+    ok: true,
+    attemptId,
+    subject,
+    file: { path: rel, sha256, bytes: stat.size },
+    count: parsed.length,
+    skippedForSecrets: skipped,
+    commands: parsed,
+  }
+}
+
+function importScript(params = {}, actor = { kind: 'unknown', reason: 'no-actor' }) {
+  const rel = String(params.script || '').trim()
+  if (!rel) throw Object.assign(new Error('script path is required'), { code: 'import-invalid' })
+  const abs = resolveInside(rel, 'script')
+  if (!existsSync(abs)) throw Object.assign(new Error(`script not found: ${rel}`), { code: 'import-invalid' })
+  const stat = statSync(abs)
+  if (!stat.isFile()) throw Object.assign(new Error(`not a file: ${rel}`), { code: 'import-invalid' })
+  if (stat.size > 5 * 1024 * 1024) throw Object.assign(new Error('script is too large to import'), { code: 'import-invalid' })
+  const sha256 = sha256File(abs)
+  const state = readProjectState()
+  let log = null
+  if (params.log) {
+    const logAbs = resolveInside(String(params.log), 'log')
+    if (existsSync(logAbs)) {
+      log = {
+        path: String(params.log),
+        sha256: sha256File(logAbs),
+        bytes: statSync(logAbs).size,
+        tail: readFileSync(logAbs, 'utf8').split('\n').slice(-200).join('\n'),
+      }
+    }
+  }
+  const attemptId = newRunId()
+  const subject = state?.params?.subject ?? null
+  const note = typeof params.note === 'string' ? params.note.trim() : ''
+  const event = recordRunEvent('run.imported', {
+    mode: 'manual',
+    subject,
+    imported: {
+      script: { path: rel, sha256, bytes: stat.size, modifiedAt: new Date(stat.mtimeMs).toISOString() },
+      log,
+      note: note || null,
+      promoted: false,
+    },
+    log: log?.path || null,
+    workDir: path.dirname(rel),
+  }, {
+    actor,
+    links: { run: attemptId },
+    project: { root: '.', subject },
+  })
+
+  let promoted = null
+  if (params.promote) {
+    const { pipe } = readPipeline()
+    const command = {
+      id: `cmd-${Date.now().toString(36)}`,
+      name: path.basename(rel),
+      argv: [],
+      scriptPath: rel,
+      cwd: null,
+      env: {},
+      expect: [],
+      origin: { kind: actor?.kind === 'agent' ? 'agent' : 'user' },
+    }
+    const next = { ...pipe, commands: [...(pipe.commands || []), command] }
+    savePipeline(next)
+    promoted = command
+    if (event) {
+      recordRunEvent('run.imported', {
+        mode: 'manual', subject,
+        imported: { script: { path: rel, sha256 }, log, note: note || null, promoted: true, commandId: command.id },
+        log: log?.path || null,
+      }, { actor, links: { run: attemptId }, project: { root: '.', subject } })
+    }
+  }
+  return {
+    ok: true,
+    attemptId,
+    subject,
+    script: { path: rel, sha256, bytes: stat.size },
+    log: log ? { path: log.path, sha256: log.sha256, bytes: log.bytes, lines: log.tail.split('\n').length } : null,
+    promoted,
+    note: note || null,
+  }
+}
+
+function ffsToolRun(params = {}, actor = { kind: 'unknown', reason: 'no-actor' }) {
   const argv = Array.isArray(params.argv) ? params.argv.map((item) => String(item)) : []
   if (!argv.length) throw Object.assign(new Error('argv is required'), { code: 'tool-invalid' })
   if (!TOOL_RUN_WHITELIST.test(path.basename(argv[0]))) {
@@ -2815,6 +4484,12 @@ function ffsToolRun(params = {}) {
   const expect = Array.isArray(params.expect) ? params.expect.map((item) => String(item.path || item)) : []
   const timeout = Math.max(1000, Math.min(Number(params.timeoutMs) || 300000, 900000))
   const started = Date.now()
+  const state = readProjectState()
+  const subject = state?.params?.subject ?? null
+  const recordId = newRunId()
+  recordStarted(recordId, {
+    mode: 'tool', actor, subject, script: null, workDir: path.relative(PROJECT_ROOT, cwd),
+  })
   let stdout = ''
   let stderr = ''
   let exitCode = 0
@@ -2845,14 +4520,27 @@ function ffsToolRun(params = {}) {
     ok: exitCode === 0 && missing.length === 0,
   }
   appendProvenance(TOOL_RUNS_FILE, record)
+  recordEnded(recordId, {
+    actor, subject, status: record.ok ? 'completed' : 'failed',
+    exitCode: record.exitCode, durationMs: record.durationMs,
+    error: record.ok ? null : (cleanLogText(stderr).split('\n').filter(Boolean).slice(-2).join(' ') || `exit ${record.exitCode}`),
+    outputs: record.outputs,
+  })
+  const stdoutText = cleanLogText(stdout)
+  const stderrText = cleanLogText(stderr)
+  const stdoutLines = stdoutText ? stdoutText.replace(/\n$/, '').split('\n') : []
+  const stderrLines = stderrText ? stderrText.replace(/\n$/, '').split('\n') : []
   return {
     ...record,
-    stdout: cleanLogText(stdout).split('\n').slice(-40).join('\n'),
-    stderr: cleanLogText(stderr).split('\n').slice(-20).join('\n'),
+    stdout: stdoutLines.slice(-40).join('\n'),
+    stderr: stderrLines.slice(-20).join('\n'),
+    stdoutLines: stdoutLines.length,
+    stderrLines: stderrLines.length,
+    outputTruncated: stdoutLines.length > 40 || stderrLines.length > 20,
   }
 }
 
-function ffsReplay(params = {}) {
+function ffsReplay(params = {}, actor = { kind: 'unknown', reason: 'no-actor' }) {
   const settled = readSettled()
   const state = readProjectState()
   const sourceWork = params.workDir
@@ -2887,6 +4575,12 @@ function ffsReplay(params = {}) {
     ? params.artifact
     : readdirSync(sourceWork).find((name) => /^stage12\.stats-reml\..*\.nii\.gz$/.test(name) && !/ffsremlvar/.test(name))
   if (!statsName) throw Object.assign(new Error('no stats artifact to compare'), { code: 'replay-no-artifact' })
+  const subject = state?.params?.subject ?? null
+  const recordId = newRunId()
+  recordStarted(recordId, {
+    mode: 'replay', actor, subject, script: path.relative(PROJECT_ROOT, scriptAbs),
+    workDir: path.relative(PROJECT_ROOT, sourceWork),
+  })
   const started = Date.now()
   let log = ''
   let exitCode = 0
@@ -2923,6 +4617,12 @@ function ffsReplay(params = {}) {
     logTail: cleanLogText(log).split('\n').filter(Boolean).slice(-8),
   }
   appendProvenance(REPLAYS_FILE, record)
+  recordEnded(recordId, {
+    actor, subject, status: (exitCode === 0 && match) ? 'completed' : 'failed',
+    exitCode, durationMs: record.durationMs,
+    error: (exitCode === 0 && match) ? null : (record.logTail || []).slice(-2).join(' '),
+    outputs: [record.original, record.replay].filter(Boolean),
+  })
   return { ok: exitCode === 0 && match, exitCode, match, exact, toleranceMatch, ...record }
 }
 
@@ -3013,8 +4713,16 @@ function projectAssetFile(rel) {
 }
 
 function routeError(res, error) {
-  const status = error?.code === 'run-busy' ? 409 : error?.code === 'not-planned' || error?.code === 'not-running' ? 400 : 500
-  writeJson(res, status, { ok: false, error: { code: error?.code || 'failed', message: error?.message || String(error) } })
+  const code = error?.code || 'failed'
+  const status = code === 'run-busy' || code === 'pipeline-invalid' || code === 'command-script-changed' ? 409
+    : code === 'decision-invalid' ? 400
+      : code === 'decision-constraint' ? 409
+      : code === 'constraint-violation' ? 409
+      : code === 'standard-departure' ? 409
+      : code === 'open-decisions' ? 409
+    : code === 'not-planned' || code === 'not-running' ? 400
+      : 500
+  writeJson(res, status, { ok: false, error: { code, message: error?.message || String(error), details: error?.details } })
 }
 
 // ------------------------------------------------------------------ plugin
@@ -3036,6 +4744,71 @@ export function apply(ctx) {
       return JSON.stringify(snapshotSummary(), null, 1)
     },
   }), 'ffs-analysis: snapshot tool')
+
+  ctx.effect(() => ctx.tools.register({
+    name: 'ffs_pipeline_edit',
+    presentCall: (args) => ({ card: 'generic', kind: 'write', title: 'Edit FFS pipeline', rawInput: args }),
+    description: [
+      'Edit the analysis pipeline file (scope, recipe, overrides, commands), validate it and',
+      'return the new version plus the resolved ffs_autoproc command. It never runs anything.',
+      'Overrides merge by default; pass replaceOverrides=true to replace the whole override map,',
+      'and set a value to null/empty to remove that override.',
+    ].join('\n'),
+    parameters: {
+      type: 'object',
+      properties: {
+        scope: {
+          type: 'object',
+          description: 'Partial scope update (bidsDir, subject, session[], task[], workDir).',
+          additionalProperties: true,
+        },
+        recipe: { type: 'string', description: 'Recipe id; empty string means parser defaults (no recipe).' },
+        overrides: { type: 'object', description: 'Dest → value overrides to merge; null removes.', additionalProperties: true },
+        commands: { type: 'array', description: 'Full replacement of the post-run command step list.', items: { type: 'object', additionalProperties: true } },
+        replaceOverrides: { type: 'boolean', description: 'Replace the override map instead of merging (default false).' },
+        note: { type: 'string', description: 'Optional note for the caller; recorded nowhere else.' },
+      },
+      required: [],
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    },
+    async execute(args, exec) {
+      const input = args && typeof args === 'object' ? args : {}
+      const current = readPipeline().pipe
+      const body = {}
+      if (input.scope && typeof input.scope === 'object') body.scope = input.scope
+      if (Object.prototype.hasOwnProperty.call(input, 'recipe')) {
+        body.recipe = input.recipe === undefined || input.recipe === null || input.recipe === '' ? null : input.recipe
+      }
+      if (Object.prototype.hasOwnProperty.call(input, 'commands')) body.commands = Array.isArray(input.commands) ? input.commands : []
+      if (input.overrides && typeof input.overrides === 'object') {
+        const overrides = input.replaceOverrides ? {} : { ...(current.overrides || {}) }
+        for (const [dest, value] of Object.entries(input.overrides)) {
+          if (value === null || value === undefined || value === '') delete overrides[dest]
+          else overrides[dest] = value
+        }
+        body.overrides = overrides
+      }
+      const actor = actorFromExec(exec, 'ffs_pipeline_edit')
+      const view = savePipeline(body, actor)
+      return JSON.stringify({
+        ok: true,
+        version: view.version,
+        scope: view.pipeline.scope,
+        recipe: view.pipeline.recipe,
+        overrides: view.pipeline.overrides,
+        command: view.command,
+        argv: view.argv,
+        changes: {
+          recipe: view.pipeline.recipe,
+          overrides: Object.keys(view.pipeline.overrides || {}).length,
+          commands: (view.pipeline.commands || []).length,
+        },
+      }, null, 1)
+    },
+  }), 'ffs-analysis: pipeline edit tool')
 
   ctx.effect(() => ctx.tools.register({
     name: 'ffs_analysis_plan',
@@ -3072,8 +4845,8 @@ export function apply(ctx) {
       schema: { type: 'string' },
       render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
     },
-    async execute(args) {
-      return JSON.stringify(await runPlan(args || {}), null, 1)
+    async execute(args, exec) {
+      return JSON.stringify(await runPlan(args || {}, { actor: actorFromExec(exec, 'ffs_analysis_plan') }), null, 1)
     },
   }), 'ffs-analysis: plan tool')
 
@@ -3089,8 +4862,8 @@ export function apply(ctx) {
       schema: { type: 'string' },
       render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
     },
-    async execute() {
-      return JSON.stringify(startRun(), null, 1)
+    async execute(args, exec) {
+      return JSON.stringify(startRun({ actor: actorFromExec(exec, 'ffs_analysis_run') }), null, 1)
     },
   }), 'ffs-analysis: run tool')
 
@@ -3103,8 +4876,8 @@ export function apply(ctx) {
       schema: { type: 'string' },
       render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
     },
-    async execute() {
-      return JSON.stringify(startRun(), null, 1)
+    async execute(args, exec) {
+      return JSON.stringify(startRun({ actor: actorFromExec(exec, 'ffs_analysis_resume') }), null, 1)
     },
   }), 'ffs-analysis: resume tool')
 
@@ -3123,6 +4896,59 @@ export function apply(ctx) {
   }), 'ffs-analysis: cancel tool')
 
   ctx.effect(() => ctx.tools.register({
+    name: 'ffs_analysis_import_history',
+    presentCall: (args) => ({ card: 'generic', kind: 'write', title: 'Import shell history', rawInput: args }),
+    description: [
+      'Record an interactive shell history file (zsh extended or bash plain) as an append-only',
+      'attempt. Nothing is executed; commands containing credentials are skipped. Use limit to',
+      'keep only the most recent N lines.',
+    ].join('\n'),
+    parameters: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'Project-relative history file.' },
+        limit: { type: 'number', description: 'Most recent lines to import (default 200, max 1000).' },
+        note: { type: 'string', description: 'Why these commands matter to the analysis.' },
+      },
+      required: ['file'],
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    },
+    async execute(args, exec) {
+      return JSON.stringify(importShellHistory(args || {}, actorFromExec(exec, 'ffs_analysis_import_history')), null, 1)
+    },
+  }), 'ffs-analysis: import history tool')
+
+  ctx.effect(() => ctx.tools.register({
+    name: 'ffs_analysis_import_script',
+    presentCall: (args) => ({ card: 'generic', kind: 'write', title: 'Record an edited script', rawInput: args }),
+    description: [
+      'Record an externally edited shell script as an append-only attempt: hashes the script,',
+      'captures an optional log tail and (with promote=true) adds it as a frozen command step so',
+      'a later run reproduces it. Nothing is executed by this tool.',
+    ].join('\n'),
+    parameters: {
+      type: 'object',
+      properties: {
+        script: { type: 'string', description: 'Project-relative script path.' },
+        log: { type: 'string', description: 'Optional project-relative log path to capture.' },
+        note: { type: 'string', description: 'Why the script was run outside the pipeline.' },
+        promote: { type: 'boolean', description: 'Add the script as a frozen command step.' },
+      },
+      required: ['script'],
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    },
+    async execute(args, exec) {
+      return JSON.stringify(importScript(args || {}, actorFromExec(exec, 'ffs_analysis_import_script')), null, 1)
+    },
+  }), 'ffs-analysis: import script tool')
+
+  ctx.effect(() => ctx.tools.register({
     name: 'ffs_cohort',
     presentCall: (args) => ({ card: 'generic', kind: 'write', title: 'FFS cohort', rawInput: args }),
     description: [
@@ -3136,6 +4962,7 @@ export function apply(ctx) {
         action: { type: 'string', enum: ['list', 'validate', 'export', 'include'], description: 'list, validate (default), export, or set include/exclude.' },
         subject: { type: 'string', description: 'Subject id for action=include.' },
         include: { type: 'boolean', description: 'Include (true) or exclude (false) the subject.' },
+        reason: { type: 'string', description: 'Why the subject is included/excluded (recorded as rationale; omitted means not stated).' },
         workRoot: { type: 'string', description: 'Cohort work root, project-relative (default: current dataset).' },
       },
       required: [],
@@ -3144,7 +4971,7 @@ export function apply(ctx) {
       schema: { type: 'string' },
       render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
     },
-    async execute(args) {
+    async execute(args, exec) {
       const workRoot = args?.workRoot ? resolveInside(args.workRoot, 'workRoot') : currentCohortRoot()
       if (args?.action === 'include') {
         const subject = String(args.subject || '').replace(/^sub-/, '')
@@ -3154,6 +4981,10 @@ export function apply(ctx) {
         prefs[rootRel] = prefs[rootRel] || {}
         prefs[rootRel][subject] = Boolean(args.include)
         writeCohortPrefs(prefs)
+        recordCohortDecision({
+          subject, include: Boolean(args.include), workRoot,
+          actor: actorFromExec(exec, 'ffs_cohort'), reason: args.reason, source: 'cohort-tool',
+        })
         const cohort = discoverCohort(workRoot)
         return JSON.stringify({ ok: true, cohort, validation: validateCohort(workRoot) }, null, 1)
       }
@@ -3255,7 +5086,7 @@ export function apply(ctx) {
       schema: { type: 'string' },
       render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
     },
-    async execute(args) { return JSON.stringify(ffsToolRun(args || {}), null, 1) },
+    async execute(args, exec) { return JSON.stringify(ffsToolRun(args || {}, actorFromExec(exec, 'ffs_tool_run')), null, 1) },
   }), 'ffs-analysis: tool runner')
 
   ctx.effect(() => ctx.tools.register({
@@ -3279,7 +5110,7 @@ export function apply(ctx) {
       schema: { type: 'string' },
       render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
     },
-    async execute(args) { return JSON.stringify(ffsReplay(args || {}), null, 1) },
+    async execute(args, exec) { return JSON.stringify(ffsReplay(args || {}, actorFromExec(exec, 'ffs_replay')), null, 1) },
   }), 'ffs-analysis: replay tool')
 
   const groupParameters = {
@@ -3437,6 +5268,57 @@ export function apply(ctx) {
       }
       const rel = url.pathname.replace(new RegExp(`^${ROUTE}/?`), '')
 
+      if (rel === 'browse') {
+        try {
+          const requested = String(url.searchParams.get('path') || '')
+          const abs = resolveInside(requested || '.', 'browse path')
+          if (!existsSync(abs)) {
+            writeJson(res, 404, { ok: false, error: { message: `not found: ${requested || '.'}` } })
+            return
+          }
+          if (!statSync(abs).isDirectory()) {
+            writeJson(res, 400, { ok: false, error: { message: 'not a directory' } })
+            return
+          }
+          const entries = readdirSync(abs, { withFileTypes: true })
+            .filter((entry) => !entry.name.startsWith('.'))
+            .slice(0, 500)
+            .map((entry) => ({
+              name: entry.name,
+              dir: entry.isDirectory(),
+              path: path.relative(PROJECT_ROOT, path.join(abs, entry.name)),
+            }))
+            .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1))
+          const relPath = path.relative(PROJECT_ROOT, abs)
+          writeJson(res, 200, {
+            ok: true,
+            path: relPath,
+            parent: relPath && relPath !== '.' ? path.relative(PROJECT_ROOT, path.dirname(abs)) : null,
+            entries,
+          })
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'client-diag') {
+        if (req.method !== 'POST') {
+          writeText(res, 405, 'method not allowed')
+          return
+        }
+        try {
+          const body = await readJsonBody(req)
+          const file = path.join(PROJECT_ROOT, 'work', 'ffs-analysis-client-diag.json')
+          mkdirSync(path.dirname(file), { recursive: true })
+          writeFileSync(file, `${JSON.stringify({ receivedAt: new Date().toISOString(), ...body }, null, 1)}\n`)
+          writeJson(res, 200, { ok: true, file: path.relative(PROJECT_ROOT, file) })
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
       if (rel === '' || rel === 'snapshot') {
         try {
           writeJson(res, 200, readSnapshot())
@@ -3453,7 +5335,7 @@ export function apply(ctx) {
         }
         try {
           const body = await readJsonBody(req)
-          writeJson(res, 200, await runPlan(body))
+          writeJson(res, 200, await runPlan(body, { actor: routeActor() }))
         } catch (error) {
           routeError(res, error)
         }
@@ -3466,7 +5348,7 @@ export function apply(ctx) {
           return
         }
         try {
-          writeJson(res, 200, startRun())
+          writeJson(res, 200, startRun({ actor: routeActor() }))
         } catch (error) {
           routeError(res, error)
         }
@@ -3496,6 +5378,26 @@ export function apply(ctx) {
         return
       }
 
+      if (rel === 'import-history') {
+        try {
+          const body = req.method === 'POST' ? await readJsonBody(req) : {}
+          writeJson(res, 200, importShellHistory(body, routeActor()))
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'import-script') {
+        try {
+          const body = req.method === 'POST' ? await readJsonBody(req) : {}
+          writeJson(res, 200, importScript(body, routeActor()))
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
       if (rel === 'cohort') {
         try {
           const body = req.method === 'POST' ? await readJsonBody(req) : {}
@@ -3508,6 +5410,10 @@ export function apply(ctx) {
             prefs[rootRel] = prefs[rootRel] || {}
             prefs[rootRel][subject] = Boolean(body.include)
             writeCohortPrefs(prefs)
+            recordCohortDecision({
+              subject, include: Boolean(body.include), workRoot,
+              actor: routeActor(), reason: body.reason, source: 'cohort-tab',
+            })
           }
           if (body.action === 'export') {
             writeJson(res, 200, { ok: true, ...exportCohortPackage({ workRoot: path.relative(PROJECT_ROOT, workRoot) }) })
@@ -3537,7 +5443,7 @@ export function apply(ctx) {
       if (rel === 'tool-run') {
         try {
           const body = req.method === 'POST' ? await readJsonBody(req) : {}
-          writeJson(res, 200, { ok: true, ...ffsToolRun(body) })
+          writeJson(res, 200, { ok: true, ...ffsToolRun(body, routeActor()) })
         } catch (error) {
           routeError(res, error)
         }
@@ -3547,7 +5453,7 @@ export function apply(ctx) {
       if (rel === 'replay') {
         try {
           const body = req.method === 'POST' ? await readJsonBody(req) : {}
-          writeJson(res, 200, { ok: true, ...ffsReplay(body) })
+          writeJson(res, 200, { ok: true, ...ffsReplay(body, routeActor()) })
         } catch (error) {
           routeError(res, error)
         }
@@ -3584,9 +5490,166 @@ export function apply(ctx) {
           return
         }
         try {
+          const body = rel === 'settle' ? await readJsonBody(req) : {}
           writeJson(res, 200, rel === 'settle'
-            ? { ok: true, ...settleProject() }
+            ? { ok: true, ...settleProject(body) }
             : exportPackage())
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'autoproc/schema') {
+        try {
+          writeJson(res, 200, { ok: true, model: autoprocModel() })
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'pipeline/promote') {
+        if (req.method !== 'POST') {
+          writeText(res, 405, 'method not allowed')
+          return
+        }
+        try {
+          const body = await readJsonBody(req)
+          const argv = Array.isArray(body.argv) ? body.argv.map(String).filter(Boolean) : []
+          if (!argv.length) throw Object.assign(new Error('argv is required to promote a command'), { code: 'command-invalid' })
+          const current = readPipeline().pipe
+          const command = {
+            id: `cmd-${Date.now().toString(36)}`,
+            name: String(body.name || path.basename(argv[0])).trim() || path.basename(argv[0]),
+            argv,
+            scriptPath: body.scriptPath ? String(body.scriptPath) : null,
+            cwd: body.cwd ? String(body.cwd) : null,
+            expect: Array.isArray(body.expect) ? body.expect.map(String) : [],
+            env: body.env && typeof body.env === 'object' ? body.env : {},
+            origin: body.origin && typeof body.origin === 'object'
+              ? body.origin
+              : { kind: 'scratch', toolRunId: body.toolRunId || null },
+          }
+          const view = savePipeline({ commands: [...(current.commands || []), command] }, routeActor())
+          writeJson(res, 200, {
+            ok: true,
+            command,
+            version: view.version,
+            commandCount: (view.pipeline.commands || []).length,
+            commandLine: view.command,
+          })
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'pipeline') {
+        try {
+          if (req.method === 'GET') {
+            const { pipe, migrated } = readPipeline()
+            writeJson(res, 200, pipelineView(pipe, { migrated }))
+          } else if (req.method === 'POST') {
+            const body = await readJsonBody(req)
+            writeJson(res, 200, savePipeline(body))
+          } else {
+            writeText(res, 405, 'method not allowed')
+          }
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'constraints') {
+        try {
+          const op = ['plan', 'run', 'settle', 'export'].includes(url.searchParams.get('op'))
+            ? url.searchParams.get('op') : 'plan'
+          let facts = {}
+          try { facts = JSON.parse(url.searchParams.get('facts') || '{}') } catch { facts = {} }
+          writeJson(res, 200, { ok: true, ...evaluateConstraints(op, facts) })
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'preferences') {
+        try {
+          writeJson(res, 200, {
+            ok: true,
+            ...preferencesSummary({
+              task: url.searchParams.get('task') || undefined,
+              stage: url.searchParams.get('stage') || undefined,
+            }),
+          })
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'decisions') {
+        if (req.method !== 'POST') {
+          writeText(res, 405, 'method not allowed')
+          return
+        }
+        try {
+          const body = await readJsonBody(req)
+          writeJson(res, 200, recordDecision(body))
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'pipeline/generate') {
+        if (req.method !== 'POST') {
+          writeText(res, 405, 'method not allowed')
+          return
+        }
+        try {
+          writeJson(res, 200, generatePipelineScript({ actor: routeActor() }))
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'artifact-text') {
+        try {
+          const decoded = decodeURIComponent(String(url.searchParams.get('path') || ''))
+          const raw = path.isAbsolute(decoded) ? decoded : decoded.replace(/^\/+/, '')
+          let file = null
+          if (path.isAbsolute(raw)) {
+            const abs = path.resolve(raw)
+            if (abs.startsWith(`${PROJECT_ROOT}${path.sep}`) && existsSync(abs)) file = abs
+          } else {
+            file = projectAssetFile(raw)
+          }
+          if (!file || !existsSync(file) || !statSync(file).isFile()) {
+            writeText(res, 404, 'artifact not found')
+            return
+          }
+          const size = statSync(file).size
+          if (size > 512 * 1024) {
+            writeJson(res, 413, { ok: false, error: { code: 'artifact-too-large', message: `artifact is ${size} bytes; preview limit is 512 KiB` } })
+            return
+          }
+          const textExtensions = new Set(['.sh', '.log', '.toml', '.json', '.csv', '.tsv', '.txt', '.md', '.yaml', '.yml', '.py', '.bval', '.bvec'])
+          if (!textExtensions.has(path.extname(file).toLowerCase())) {
+            writeJson(res, 415, { ok: false, error: { code: 'artifact-binary', message: 'only text artifacts can be previewed' } })
+            return
+          }
+          const text = readFileSync(file, 'utf8')
+          writeJson(res, 200, {
+            ok: true,
+            path: path.relative(PROJECT_ROOT, file),
+            bytes: size,
+            lines: text.split('\n').length,
+            text,
+          })
         } catch (error) {
           routeError(res, error)
         }

@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "FFS record",
+    "description": "Reads the append-only FFS analysis record: attempt ledger with actors, query and index rebuild.",
+    "detail": "docs/DETAIL.md"
+  }
+}

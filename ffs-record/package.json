@@ -1,0 +1,30 @@
+{
+  "name": "@local/ffs-record",
+  "version": "0.1.12",
+  "private": true,
+  "type": "module",
+  "description": "Append-only FFS analysis record: attempt ledger, actors, query and rebuild",
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./client": "./client.js"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "docs",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}

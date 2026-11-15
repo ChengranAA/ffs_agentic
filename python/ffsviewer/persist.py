@@ -216,7 +216,17 @@ def restore_state(session, state_dir: Path) -> dict:
     if not text:
         return {"restored": False, "reason": "no viewer.ffs"}
     parsed = ffs_commands.parse_script(text)
-    session.run_script(text)
+    # Replay tolerantly: a saved history can legitimately name a layer that a
+    # later command removed, or a file that has since moved. One bad line must
+    # not blank the whole viewer; apply the rest and keep the failures visible.
+    applied = []
+    errors = []
+    for cmd in parsed:
+        try:
+            session.bus.dispatch(cmd)
+            applied.append(cmd)
+        except Exception as exc:  # noqa: BLE001 - a repair path, not control flow
+            errors.append({"line": cmd.to_line(), "error": str(exc)})
     log = [
         {
             "line": cmd.to_line(),
@@ -225,11 +235,14 @@ def restore_state(session, state_dir: Path) -> dict:
             "origin": "restore",
             "ts": _stamp(),
         }
-        for cmd in parsed
+        for cmd in applied
     ]
     return {
         "restored": True,
         "commands": len(parsed),
+        "applied": len(applied),
+        "failed": len(errors),
+        "errors": errors[:20],
         "log": log,
         "workspace": load_workspace(state_dir),
     }

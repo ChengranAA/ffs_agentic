@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="840" viewBox="0 0 1280 840" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+  <defs>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#1f2328" flood-opacity="0.06"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="840" fill="#f6f7f9"/>
+
+  <!-- window header -->
+  <g filter="url(#soft)">
+    <rect x="24" y="20" width="1232" height="68" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="48" y="51" font-size="16" font-weight="600" fill="#1f2328">FFS analysis</text>
+  <text x="48" y="72" font-size="11" fill="#6b7280">ds005165 · sub-01 · localizer · QC</text>
+  <rect x="864" y="38" width="176" height="30" rx="15" fill="#fdf6e3" stroke="#f0d9a8"/>
+  <circle cx="882" cy="53" r="4" fill="#b45309"/>
+  <text x="894" y="57" font-size="11" fill="#8a4b08">2 runs · 1 warning · 1 tentative</text>
+  <rect x="1100" y="38" width="132" height="30" rx="8" fill="#3b6cf6"/>
+  <text x="1166" y="57" font-size="11.5" fill="#ffffff" text-anchor="middle">Open viewer</text>
+
+  <!-- section rail -->
+  <g filter="url(#soft)">
+    <rect x="24" y="96" width="212" height="716" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <circle cx="54" cy="137" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="141" font-size="12.5" fill="#4b5563">Pipeline</text>
+  <text x="220" y="141" font-size="10.5" fill="#9aa1ab" text-anchor="end">2</text>
+  <circle cx="54" cy="181" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="185" font-size="12.5" fill="#4b5563">Data</text>
+  <text x="220" y="185" font-size="10.5" fill="#9aa1ab" text-anchor="end">12</text>
+
+  <rect x="32" y="206" width="196" height="38" rx="8" fill="#eef2ff"/>
+  <rect x="32" y="212" width="3" height="26" rx="1.5" fill="#3b6cf6"/>
+  <circle cx="54" cy="225" r="5" fill="#3b6cf6"/>
+  <text x="70" y="229" font-size="12.5" font-weight="600" fill="#1f2328">QC</text>
+  <text x="220" y="229" font-size="10.5" fill="#6b7280" text-anchor="end">2</text>
+
+  <circle cx="54" cy="269" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="273" font-size="12.5" fill="#4b5563">Results</text>
+  <text x="220" y="273" font-size="10.5" fill="#9aa1ab" text-anchor="end">6</text>
+  <circle cx="54" cy="313" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="317" font-size="12.5" fill="#4b5563">Cohort</text>
+  <text x="220" y="317" font-size="10.5" fill="#9aa1ab" text-anchor="end">32</text>
+  <circle cx="54" cy="357" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="361" font-size="12.5" fill="#4b5563">Group</text>
+  <text x="220" y="361" font-size="10.5" fill="#9aa1ab" text-anchor="end">2</text>
+  <circle cx="54" cy="405" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="409" font-size="12.5" fill="#4b5563">Provenance</text>
+  <circle cx="54" cy="449" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="70" y="453" font-size="12.5" fill="#4b5563">Settings</text>
+
+  <rect x="40" y="484" width="180" height="1" fill="#eceef2"/>
+  <text x="40" y="508" font-size="9.5" fill="#9aa1ab" letter-spacing="1">QC</text>
+  <text x="40" y="530" font-size="10.5" fill="#6b7280">figures</text>
+  <text x="220" y="530" font-size="10.5" fill="#374151" text-anchor="end">2</text>
+  <text x="40" y="550" font-size="10.5" fill="#6b7280">review rows</text>
+  <text x="220" y="550" font-size="10.5" fill="#374151" text-anchor="end">2</text>
+  <text x="40" y="570" font-size="10.5" fill="#6b7280">decisions</text>
+  <text x="220" y="570" font-size="10.5" fill="#374151" text-anchor="end">2</text>
+  <text x="40" y="590" font-size="10.5" fill="#6b7280">tentative</text>
+  <text x="220" y="590" font-size="10.5" fill="#b45309" text-anchor="end">1</text>
+
+  <rect x="40" y="616" width="180" height="96" rx="8" fill="#f8f9fb" stroke="#eceef2"/>
+  <text x="52" y="636" font-size="10.5" font-weight="600" fill="#4b5563">Judgment is recorded</text>
+  <text x="52" y="654" font-size="9.5" fill="#6b7280">action · reason or</text>
+  <text x="52" y="668" font-size="9.5" fill="#6b7280">“not stated” · confidence</text>
+  <text x="52" y="682" font-size="9.5" fill="#6b7280">actor · time · target sha</text>
+  <text x="52" y="700" font-size="9.5" fill="#3b6cf6">open Record tab →</text>
+
+  <!-- qc header card -->
+  <g filter="url(#soft)">
+    <rect x="252" y="96" width="980" height="56" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="272" y="124" font-size="14" font-weight="600" fill="#1f2328">QC · run checks</text>
+  <text x="404" y="124" font-size="11" fill="#6b7280">2 runs · 1 warning</text>
+  <text x="1212" y="124" font-size="10.5" fill="#9aa1ab" text-anchor="end">figures + qc_review.tsv · server-rendered</text>
+
+  <!-- run-01 card -->
+  <g filter="url(#soft)">
+    <rect x="252" y="164" width="478" height="366" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="270" y="192" font-size="13" font-weight="600" fill="#1f2328">run-01</text>
+  <rect x="336" y="180" width="52" height="20" rx="10" fill="#eaf6ee" stroke="#b7e1c1"/>
+  <text x="362" y="194" font-size="9.5" fill="#23663a" text-anchor="middle">pass</text>
+  <text x="710" y="193" font-size="9.5" fill="#2f9e44" text-anchor="end">accepted · user 17:38</text>
+
+  <rect x="268" y="208" width="446" height="104" rx="8" fill="#f8f9fb" stroke="#eceef2"/>
+  <polyline points="280,280 300,274 320,278 340,270 360,276 380,268 400,272 420,266 440,270 460,262 480,268 500,258 520,264 540,260 560,266 580,258 600,264 620,260 640,268 660,262 680,266 692,264"
+            fill="none" stroke="#3b6cf6" stroke-width="1.6"/>
+  <text x="280" y="226" font-size="9.5" fill="#9aa1ab">framewise displacement · mm</text>
+  <text x="268" y="332" font-size="10.5" fill="#6b7280">FD max 0.42 mm · mean 0.18 mm · 80 TR · 2 mm</text>
+
+  <rect x="268" y="346" width="92" height="28" rx="7" fill="#eaf6ee" stroke="#b7e1c1"/>
+  <text x="314" y="365" font-size="10.5" fill="#23663a" text-anchor="middle">Accept</text>
+  <rect x="368" y="346" width="96" height="28" rx="7" fill="#ffffff" stroke="#e4e6eb"/>
+  <text x="416" y="365" font-size="10.5" fill="#6b7280" text-anchor="middle">Tentative</text>
+  <rect x="472" y="346" width="86" height="28" rx="7" fill="#ffffff" stroke="#f0c2c2"/>
+  <text x="515" y="365" font-size="10.5" fill="#c92a2a" text-anchor="middle">Reject</text>
+  <rect x="574" y="346" width="76" height="28" rx="7" fill="#ffffff" stroke="#e4e6eb"/>
+  <text x="612" y="365" font-size="10.5" fill="#3b6cf6" text-anchor="middle">Inspect</text>
+  <text x="268" y="398" font-size="9.5" fill="#2f9e44">✓ decision recorded · target qc/run-01/fd.png · sha 2b7e…</text>
+  <text x="268" y="414" font-size="9.5" fill="#9aa1ab">reason: not stated (explicitly)</text>
+  <text x="268" y="436" font-size="9.5" fill="#9aa1ab">Inspect opens the viewer at this run; the inspection</text>
+  <text x="268" y="450" font-size="9.5" fill="#9aa1ab">session is linked to the decision when available.</text>
+
+  <!-- run-02 card -->
+  <g filter="url(#soft)">
+    <rect x="742" y="164" width="490" height="366" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="760" y="192" font-size="13" font-weight="600" fill="#1f2328">run-02</text>
+  <rect x="826" y="180" width="64" height="20" rx="10" fill="#fdf6e3" stroke="#f0d9a8"/>
+  <text x="858" y="194" font-size="9.5" fill="#8a4b08" text-anchor="middle">warning</text>
+  <text x="1212" y="193" font-size="9.5" fill="#b45309" text-anchor="end">1 tentative</text>
+
+  <rect x="758" y="208" width="458" height="104" rx="8" fill="#f8f9fb" stroke="#eceef2"/>
+  <polyline points="770,282 790,276 810,280 830,272 850,278 870,270 890,276 910,268 930,274 950,266 970,272 990,264 1010,270 1030,262 1050,268 1070,258 1090,246 1110,222 1130,270 1150,266 1170,272 1190,268 1204,270"
+            fill="none" stroke="#d98a1f" stroke-width="1.6"/>
+  <text x="770" y="226" font-size="9.5" fill="#9aa1ab">framewise displacement · mm</text>
+  <text x="758" y="332" font-size="10.5" fill="#6b7280">FD max 1.91 mm · mean 0.44 mm · 80 TR · 3 TRs above 0.5</text>
+
+  <rect x="758" y="346" width="92" height="28" rx="7" fill="#ffffff" stroke="#e4e6eb"/>
+  <text x="804" y="365" font-size="10.5" fill="#6b7280" text-anchor="middle">Accept</text>
+  <rect x="858" y="346" width="96" height="28" rx="7" fill="#fdf6e3" stroke="#f0d9a8"/>
+  <text x="906" y="365" font-size="10.5" fill="#8a4b08" text-anchor="middle">Tentative</text>
+  <rect x="962" y="346" width="86" height="28" rx="7" fill="#ffffff" stroke="#f0c2c2"/>
+  <text x="1005" y="365" font-size="10.5" fill="#c92a2a" text-anchor="middle">Reject</text>
+  <rect x="1056" y="346" width="76" height="28" rx="7" fill="#ffffff" stroke="#e4e6eb"/>
+  <text x="1094" y="365" font-size="10.5" fill="#3b6cf6" text-anchor="middle">Inspect</text>
+
+  <rect x="758" y="384" width="458" height="122" rx="8" fill="#fffbf2" stroke="#f0d9a8"/>
+  <text x="770" y="404" font-size="10.5" font-weight="600" fill="#8a4b08">Decision · tentative</text>
+  <text x="770" y="424" font-size="9.5" fill="#9aa1ab">Reason (optional)</text>
+  <text x="770" y="440" font-size="10" fill="#6b4a1a" font-style="italic">motion spike at TR 40 — judged acceptable after re-inspection</text>
+  <text x="770" y="462" font-size="9.5" fill="#9aa1ab">Confidence</text>
+  <rect x="830" y="449" width="40" height="20" rx="10" fill="#ffffff" stroke="#e4e6eb"/>
+  <text x="850" y="463" font-size="9" fill="#6b7280" text-anchor="middle">low</text>
+  <rect x="876" y="449" width="46" height="20" rx="10" fill="#3b6cf6"/>
+  <text x="899" y="463" font-size="9" fill="#ffffff" text-anchor="middle">medium</text>
+  <rect x="928" y="449" width="40" height="20" rx="10" fill="#ffffff" stroke="#e4e6eb"/>
+  <text x="948" y="463" font-size="9" fill="#6b7280" text-anchor="middle">high</text>
+  <rect x="1008" y="466" width="96" height="26" rx="6" fill="#3b6cf6"/>
+  <text x="1056" y="483" font-size="10.5" fill="#ffffff" text-anchor="middle">Save decision</text>
+  <rect x="1112" y="466" width="70" height="26" rx="6" fill="#ffffff" stroke="#e4e6eb"/>
+  <text x="1147" y="483" font-size="10.5" fill="#6b7280" text-anchor="middle">Cancel</text>
+
+  <!-- decisions card -->
+  <g filter="url(#soft)">
+    <rect x="252" y="544" width="980" height="196" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="272" y="572" font-size="14" font-weight="600" fill="#1f2328">Decisions</text>
+  <text x="360" y="572" font-size="11" fill="#6b7280">stored in project decisions[] · exported as decisions.json</text>
+  <rect x="272" y="584" width="940" height="1" fill="#eceef2"/>
+
+  <text x="272" y="608" font-size="9.5" fill="#9aa1ab">TIME</text>
+  <text x="340" y="608" font-size="9.5" fill="#9aa1ab">TARGET</text>
+  <text x="720" y="608" font-size="9.5" fill="#9aa1ab">ACTION</text>
+  <text x="820" y="608" font-size="9.5" fill="#9aa1ab">REASON</text>
+  <text x="1120" y="608" font-size="9.5" fill="#9aa1ab">ACTOR</text>
+
+  <text x="272" y="634" font-size="10.5" fill="#374151">17:41</text>
+  <text x="340" y="634" font-size="10.5" fill="#374151">run-02 · qc/fd.png · sha 4c1a…</text>
+  <rect x="720" y="620" width="76" height="20" rx="10" fill="#fdf6e3" stroke="#f0d9a8"/>
+  <text x="758" y="634" font-size="9.5" fill="#8a4b08" text-anchor="middle">tentative</text>
+  <text x="820" y="634" font-size="10" fill="#6b7280">motion spike at TR 40</text>
+  <text x="1120" y="634" font-size="10" fill="#374151">user</text>
+
+  <text x="272" y="662" font-size="10.5" fill="#374151">17:38</text>
+  <text x="340" y="662" font-size="10.5" fill="#374151">run-01 · qc/fd.png · sha 2b7e…</text>
+  <rect x="720" y="648" width="76" height="20" rx="10" fill="#eaf6ee" stroke="#b7e1c1"/>
+  <text x="758" y="662" font-size="9.5" fill="#23663a" text-anchor="middle">accepted</text>
+  <text x="820" y="662" font-size="10" fill="#9aa1ab">not stated</text>
+  <text x="1120" y="662" font-size="10" fill="#374151">user</text>
+
+  <rect x="272" y="686" width="940" height="38" rx="8" fill="#f8f9fb" stroke="#eceef2"/>
+  <text x="284" y="703" font-size="10" fill="#6b7280">Target = run + reviewed file + sha, so a verdict can be cited, superseded and shipped with the package.</text>
+  <text x="284" y="717" font-size="10" fill="#6b7280">A tentative or rejected run stays visible in the cohort until a later decision supersedes it.</text>
+
+  <!-- footer note -->
+  <g filter="url(#soft)">
+    <rect x="252" y="752" width="980" height="60" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="272" y="778" font-size="10.5" fill="#374151">Judgment stays separate from measurement: figures and the QC table are computed; the decision, its actor and its reason are recorded beside them.</text>
+  <text x="272" y="797" font-size="10" fill="#9aa1ab">No rationale is invented: choosing “not stated” is a recorded value, not a blank.</text>
+  <text x="1212" y="797" font-size="10.5" fill="#3b6cf6" text-anchor="end">view full record →</text>
+</svg>

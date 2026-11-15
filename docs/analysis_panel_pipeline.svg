@@ -1,0 +1,195 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="900" viewBox="0 0 1280 900" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+  <defs>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#1f2328" flood-opacity="0.06"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="900" fill="#f6f7f9"/>
+
+  <!-- header -->
+  <g filter="url(#soft)">
+    <rect x="24" y="20" width="1232" height="68" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="48" y="51" font-size="16" font-weight="600" fill="#1f2328">FFS analysis</text>
+  <text x="48" y="72" font-size="11" fill="#6b7280">ds005165 · sub-01 · localizer · pipeline v4 · ffs_autoproc</text>
+  <rect x="852" y="38" width="188" height="30" rx="15" fill="#eef2ff" stroke="#c7d6ff"/>
+  <circle cx="870" cy="53" r="4" fill="#3b6cf6"/>
+  <text x="882" y="57" font-size="11" fill="#26449c">complete · 19 stages · 3 changed</text>
+  <rect x="1052" y="38" width="62" height="30" rx="8" fill="#ffffff" stroke="#d5d9e0"/>
+  <text x="1083" y="57" font-size="11.5" fill="#374151" text-anchor="middle">Save</text>
+  <rect x="1122" y="38" width="110" height="30" rx="8" fill="#3b6cf6"/>
+  <text x="1177" y="57" font-size="11.5" fill="#ffffff" text-anchor="middle">Run stage plan</text>
+
+  <!-- rail -->
+  <g filter="url(#soft)">
+    <rect x="24" y="96" width="212" height="780" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <rect x="32" y="118" width="196" height="38" rx="8" fill="#eef2ff"/>
+  <rect x="32" y="124" width="3" height="26" rx="1.5" fill="#3b6cf6"/>
+  <circle cx="54" cy="137" r="5" fill="#3b6cf6"/>
+  <text x="70" y="141" font-size="12.5" font-weight="600" fill="#1f2328">Pipeline</text>
+  <text x="220" y="141" font-size="10.5" fill="#6b7280" text-anchor="end">19</text>
+  <circle cx="54" cy="181" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/><text x="70" y="185" font-size="12.5" fill="#4b5563">Data</text><text x="220" y="185" font-size="10.5" fill="#9aa1ab" text-anchor="end">12</text>
+  <circle cx="54" cy="225" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/><text x="70" y="229" font-size="12.5" fill="#4b5563">QC</text><text x="220" y="229" font-size="10.5" fill="#9aa1ab" text-anchor="end">2</text>
+  <circle cx="54" cy="269" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/><text x="70" y="273" font-size="12.5" fill="#4b5563">Results</text><text x="220" y="273" font-size="10.5" fill="#9aa1ab" text-anchor="end">6</text>
+  <circle cx="54" cy="313" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/><text x="70" y="317" font-size="12.5" fill="#4b5563">Cohort</text><text x="220" y="317" font-size="10.5" fill="#9aa1ab" text-anchor="end">32</text>
+  <circle cx="54" cy="357" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/><text x="70" y="361" font-size="12.5" fill="#4b5563">Group</text><text x="220" y="361" font-size="10.5" fill="#9aa1ab" text-anchor="end">2</text>
+  <circle cx="54" cy="405" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/><text x="70" y="409" font-size="12.5" fill="#4b5563">Provenance</text>
+  <circle cx="54" cy="449" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/><text x="70" y="453" font-size="12.5" fill="#4b5563">Settings</text>
+
+  <rect x="40" y="480" width="180" height="1" fill="#eceef2"/>
+  <text x="40" y="504" font-size="9.5" fill="#9aa1ab" letter-spacing="1">RUN PLAN</text>
+  <text x="40" y="526" font-size="10.5" fill="#6b7280">recipe</text><text x="220" y="526" font-size="10.5" fill="#374151" text-anchor="end">complete</text>
+  <text x="40" y="546" font-size="10.5" fill="#6b7280">runs</text><text x="220" y="546" font-size="10.5" fill="#374151" text-anchor="end">4</text>
+  <text x="40" y="566" font-size="10.5" fill="#6b7280">sessions</text><text x="220" y="566" font-size="10.5" fill="#374151" text-anchor="end">1</text>
+  <text x="40" y="586" font-size="10.5" fill="#6b7280">fieldmaps</text><text x="220" y="586" font-size="10.5" fill="#374151" text-anchor="end">2 pairs</text>
+  <text x="40" y="606" font-size="10.5" fill="#6b7280">phase</text><text x="220" y="606" font-size="10.5" fill="#b45309" text-anchor="end">none</text>
+  <text x="40" y="626" font-size="10.5" fill="#6b7280">device</text><text x="220" y="626" font-size="10.5" fill="#374151" text-anchor="end">auto → cpu</text>
+
+  <rect x="40" y="648" width="180" height="104" rx="8" fill="#f8f9fb" stroke="#eceef2"/>
+  <text x="52" y="668" font-size="10.5" font-weight="600" fill="#4b5563">Stage states</text>
+  <circle cx="56" cy="686" r="3.5" fill="#3b6cf6"/><text x="66" y="690" font-size="9.5" fill="#6b7280">will run · 14</text>
+  <circle cx="56" cy="704" r="3.5" fill="#ffffff" stroke="#c9ced8"/><text x="66" y="708" font-size="9.5" fill="#6b7280">not applicable · 5</text>
+  <circle cx="56" cy="722" r="3.5" fill="#d98a1f"/><text x="66" y="726" font-size="9.5" fill="#6b7280">changed by you · 3</text>
+  <text x="52" y="744" font-size="9" fill="#9aa1ab">Stage order = generated script order</text>
+
+  <!-- scope -->
+  <g filter="url(#soft)"><rect x="252" y="96" width="980" height="96" rx="12" fill="#ffffff" stroke="#e4e6eb"/></g>
+  <text x="272" y="120" font-size="13" font-weight="600" fill="#1f2328">Scope</text>
+  <text x="1212" y="120" font-size="10" fill="#9aa1ab" text-anchor="end">required</text>
+  <text x="272" y="158" font-size="10" fill="#6b7280">Dataset</text>
+  <rect x="330" y="144" width="150" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="340" y="160" font-size="10.5" fill="#374151">ds005165</text><text x="466" y="160" font-size="8.5" fill="#9aa1ab">▾</text>
+  <text x="500" y="158" font-size="10" fill="#6b7280">Subject</text>
+  <rect x="552" y="144" width="66" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="562" y="160" font-size="10.5" fill="#374151">01</text><text x="604" y="160" font-size="8.5" fill="#9aa1ab">▾</text>
+  <text x="638" y="158" font-size="10" fill="#6b7280">Session</text>
+  <rect x="692" y="144" width="66" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="702" y="160" font-size="10.5" fill="#374151">01</text><text x="744" y="160" font-size="8.5" fill="#9aa1ab">▾</text>
+  <text x="778" y="158" font-size="10" fill="#6b7280">Task</text>
+  <rect x="812" y="144" width="120" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="822" y="160" font-size="10.5" fill="#374151">localizer</text><text x="918" y="160" font-size="8.5" fill="#9aa1ab">▾</text>
+  <text x="952" y="158" font-size="10" fill="#6b7280">Work dir</text>
+  <rect x="1008" y="144" width="204" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="1018" y="160" font-size="9.5" fill="#374151" font-family="SFMono-Regular,Menlo,monospace">work/ds005165/sub-01</text>
+  <text x="272" y="184" font-size="10" fill="#6b7280">Detected</text>
+  <text x="330" y="184" font-size="10" fill="#374151">4 runs · 1 session · 2 fmap pairs · SBRef · SliceTiming · </text><text x="716" y="184" font-size="10" fill="#b45309">no phase</text>
+
+  <!-- recipe -->
+  <g filter="url(#soft)"><rect x="252" y="204" width="980" height="86" rx="12" fill="#ffffff" stroke="#e4e6eb"/></g>
+  <text x="272" y="228" font-size="13" font-weight="600" fill="#1f2328">Recipe</text>
+  <text x="330" y="228" font-size="10" fill="#9aa1ab">preset defaults; any explicit flag overrides it</text>
+  <rect x="330" y="238" width="76" height="24" rx="12" fill="#ffffff" stroke="#e4e6eb"/><text x="368" y="254" font-size="9.5" fill="#6b7280" text-anchor="middle">no preset</text>
+  <rect x="412" y="238" width="86" height="24" rx="12" fill="#ffffff" stroke="#e4e6eb"/><text x="455" y="254" font-size="9.5" fill="#6b7280" text-anchor="middle">bare_bones</text>
+  <rect x="504" y="238" width="66" height="24" rx="12" fill="#ffffff" stroke="#e4e6eb"/><text x="537" y="254" font-size="9.5" fill="#6b7280" text-anchor="middle">simple</text>
+  <rect x="576" y="238" width="94" height="24" rx="12" fill="#ffffff" stroke="#e4e6eb"/><text x="623" y="254" font-size="9.5" fill="#6b7280" text-anchor="middle">simple_linear</text>
+  <rect x="676" y="238" width="102" height="24" rx="12" fill="#ffffff" stroke="#e4e6eb"/><text x="727" y="254" font-size="9.5" fill="#6b7280" text-anchor="middle">simple_nonlin</text>
+  <rect x="784" y="238" width="80" height="24" rx="12" fill="#3b6cf6"/><text x="824" y="254" font-size="9.5" fill="#ffffff" text-anchor="middle">complete</text>
+  <rect x="870" y="238" width="70" height="24" rx="12" fill="#ffffff" stroke="#e4e6eb"/><text x="905" y="254" font-size="9.5" fill="#6b7280" text-anchor="middle">extreme</text>
+  <text x="1212" y="228" font-size="10" fill="#d98a1f" text-anchor="end">3 explicit overrides</text>
+  <text x="1212" y="244" font-size="9.5" fill="#3b6cf6" text-anchor="end">reset recipe</text>
+  <text x="272" y="278" font-size="10" fill="#6b7280">complete — slice timing + distortion + moco + cross-run + nonlinear anat + GLM; needs -anat/-suma and a TPM.</text>
+
+  <!-- stage board + inspector -->
+  <g filter="url(#soft)"><rect x="252" y="302" width="980" height="490" rx="12" fill="#ffffff" stroke="#e4e6eb"/></g>
+  <text x="272" y="326" font-size="13" font-weight="600" fill="#1f2328">Stages</text>
+  <text x="326" y="326" font-size="10" fill="#9aa1ab">19 emitted · order = generated script</text>
+  <rect x="1088" y="312" width="124" height="24" rx="6" fill="#eef2ff" stroke="#c7d6ff"/><text x="1150" y="328" font-size="10" fill="#3b6cf6" text-anchor="middle">All options 172 →</text>
+  <rect x="748" y="302" width="1" height="490" fill="#eceef2"/>
+
+  <!-- stage list -->
+  <g font-size="9.5">
+    <text x="268" y="350" font-size="8.5" fill="#9aa1ab" letter-spacing=".8">PREP</text>
+    <rect x="268" y="353" width="458" height="16" rx="4" fill="#fbfcfd"/>
+    <circle cx="278" cy="361" r="3.5" fill="#3b6cf6"/><text x="290" y="364" font-size="10" fill="#374151">preflight</text><text x="470" y="364" font-size="9" fill="#9aa1ab">inputs + tools</text><text x="712" y="364" font-size="8.5" fill="#9aa1ab" text-anchor="end">always</text>
+
+    <text x="268" y="379" font-size="8.5" fill="#9aa1ab" letter-spacing=".8">DENOISE</text>
+    <rect x="268" y="382" width="458" height="16" rx="4" fill="#fafafa"/>
+    <circle cx="278" cy="390" r="3.5" fill="#ffffff" stroke="#c9ced8"/><text x="290" y="393" font-size="10" fill="#9aa1ab">stage00 NORDIC</text><text x="470" y="393" font-size="9" fill="#9aa1ab">ffs_nordic · phase</text><text x="712" y="393" font-size="8.5" fill="#b45309" text-anchor="end">no phase</text>
+
+    <text x="268" y="408" font-size="8.5" fill="#9aa1ab" letter-spacing=".8">TIMING &amp; MOTION</text>
+    <rect x="268" y="411" width="458" height="16" rx="4" fill="#fbfcfd"/>
+    <circle cx="278" cy="419" r="3.5" fill="#3b6cf6"/><text x="290" y="422" font-size="10" fill="#374151">stage01 slice timing</text><text x="470" y="422" font-size="9" fill="#9aa1ab">ffs_tshift</text><text x="712" y="422" font-size="8.5" fill="#9aa1ab" text-anchor="end">SliceTiming</text>
+    <rect x="268" y="429" width="458" height="18" rx="4" fill="#eef2ff" stroke="#3b6cf6"/>
+    <circle cx="278" cy="438" r="3.5" fill="#3b6cf6"/><text x="290" y="441" font-size="10" font-weight="600" fill="#1f2328">stage02 moco</text><text x="470" y="441" font-size="9" fill="#3b6cf6">ffs_moco</text><text x="712" y="441" font-size="8.5" fill="#3b6cf6" text-anchor="end">1 changed</text>
+    <rect x="268" y="447" width="458" height="16" rx="4" fill="#fafafa"/>
+    <circle cx="278" cy="455" r="3.5" fill="#ffffff" stroke="#c9ced8"/><text x="290" y="458" font-size="10" fill="#9aa1ab">stage03 locomoco</text><text x="470" y="458" font-size="9" fill="#9aa1ab">ffs_locomoco</text><text x="712" y="458" font-size="8.5" fill="#9aa1ab" text-anchor="end">recipe: no</text>
+
+    <text x="268" y="473" font-size="8.5" fill="#9aa1ab" letter-spacing=".8">DISTORTION</text>
+    <rect x="268" y="476" width="458" height="16" rx="4" fill="#fbfcfd"/>
+    <circle cx="278" cy="484" r="3.5" fill="#3b6cf6"/><text x="290" y="487" font-size="10" fill="#374151">stage04 fieldmap</text><text x="470" y="487" font-size="9" fill="#9aa1ab">ffs_blipflip</text><text x="712" y="487" font-size="8.5" fill="#9aa1ab" text-anchor="end">2 pairs</text>
+    <rect x="268" y="494" width="458" height="16" rx="4" fill="#fbfcfd"/>
+    <circle cx="278" cy="502" r="3.5" fill="#3b6cf6"/><text x="290" y="505" font-size="10" fill="#374151">stage05 cross-fmap</text><text x="470" y="505" font-size="9" fill="#9aa1ab">allineate</text><text x="712" y="505" font-size="8.5" fill="#9aa1ab" text-anchor="end">2 groups</text>
+
+    <text x="268" y="520" font-size="8.5" fill="#9aa1ab" letter-spacing=".8">ALIGNMENT</text>
+    <rect x="268" y="523" width="458" height="16" rx="4" fill="#fbfcfd"/>
+    <circle cx="278" cy="531" r="3.5" fill="#3b6cf6"/><text x="290" y="534" font-size="10" fill="#374151">stage06 cross-run</text><text x="470" y="534" font-size="9" fill="#9aa1ab">allineate · nl</text><text x="712" y="534" font-size="8.5" fill="#9aa1ab" text-anchor="end">4 runs</text>
+    <rect x="268" y="541" width="458" height="16" rx="4" fill="#fbfcfd"/>
+    <circle cx="278" cy="549" r="3.5" fill="#3b6cf6"/><text x="290" y="552" font-size="10" fill="#374151">stage07 means</text><text x="470" y="552" font-size="9" fill="#9aa1ab">run + session means</text><text x="712" y="552" font-size="8.5" fill="#9aa1ab" text-anchor="end">always</text>
+    <rect x="268" y="559" width="458" height="16" rx="4" fill="#fbfcfd"/>
+    <circle cx="278" cy="567" r="3.5" fill="#3b6cf6"/><text x="290" y="570" font-size="10" fill="#374151">stage08 cross-session</text><text x="470" y="570" font-size="9" fill="#9aa1ab">grandmean</text><text x="712" y="570" font-size="8.5" fill="#9aa1ab" text-anchor="end">1 session</text>
+    <rect x="268" y="577" width="458" height="16" rx="4" fill="#fbfcfd"/>
+    <circle cx="278" cy="585" r="3.5" fill="#3b6cf6"/><text x="290" y="588" font-size="10" fill="#374151">stage08b → grandmean</text><text x="470" y="588" font-size="9" fill="#9aa1ab">single resample</text><text x="712" y="588" font-size="8.5" fill="#9aa1ab" text-anchor="end">conditional</text>
+    <rect x="268" y="595" width="458" height="16" rx="4" fill="#fbfcfd"/>
+    <circle cx="278" cy="603" r="3.5" fill="#3b6cf6"/><text x="290" y="606" font-size="10" fill="#374151">stage09 anat</text><text x="470" y="606" font-size="9" fill="#9aa1ab">allineate · segment</text><text x="712" y="606" font-size="8.5" fill="#9aa1ab" text-anchor="end">TPM needed</text>
+    <rect x="268" y="613" width="458" height="16" rx="4" fill="#fafafa"/>
+    <circle cx="278" cy="621" r="3.5" fill="#ffffff" stroke="#c9ced8"/><text x="290" y="624" font-size="10" fill="#9aa1ab">stage09b anat → MNI</text><text x="470" y="624" font-size="9" fill="#9aa1ab">ffs_nwarp</text><text x="712" y="624" font-size="8.5" fill="#9aa1ab" text-anchor="end">-do_mni off</text>
+
+    <text x="268" y="639" font-size="8.5" fill="#9aa1ab" letter-spacing=".8">RESAMPLE</text>
+    <rect x="268" y="642" width="458" height="16" rx="4" fill="#fbfcfd"/>
+    <circle cx="278" cy="650" r="3.5" fill="#3b6cf6"/><text x="290" y="653" font-size="10" fill="#374151">stage10a warpmaster</text><text x="470" y="653" font-size="9" fill="#9aa1ab">grid from anat</text><text x="712" y="653" font-size="8.5" fill="#9aa1ab" text-anchor="end">always</text>
+    <rect x="268" y="660" width="458" height="16" rx="4" fill="#fbfcfd"/>
+    <circle cx="278" cy="668" r="3.5" fill="#3b6cf6"/><text x="290" y="671" font-size="10" fill="#374151">stage10 final resample</text><text x="470" y="671" font-size="9" fill="#9aa1ab">ffs_nwarp</text><text x="712" y="671" font-size="8.5" fill="#9aa1ab" text-anchor="end">always</text>
+    <rect x="268" y="678" width="458" height="16" rx="4" fill="#fbfcfd"/>
+    <circle cx="278" cy="686" r="3.5" fill="#3b6cf6"/><text x="290" y="689" font-size="10" fill="#374151">stage10b masks</text><text x="470" y="689" font-size="9" fill="#9aa1ab">epi · anat · brain</text><text x="712" y="689" font-size="8.5" fill="#9aa1ab" text-anchor="end">always</text>
+    <rect x="268" y="696" width="458" height="16" rx="4" fill="#fafafa"/>
+    <circle cx="278" cy="704" r="3.5" fill="#ffffff" stroke="#c9ced8"/><text x="290" y="707" font-size="10" fill="#9aa1ab">stage10s surfaces</text><text x="470" y="707" font-size="9" fill="#9aa1ab">-surface_target</text><text x="712" y="707" font-size="8.5" fill="#9aa1ab" text-anchor="end">off</text>
+
+    <text x="268" y="722" font-size="8.5" fill="#9aa1ab" letter-spacing=".8">MODEL</text>
+    <rect x="268" y="725" width="458" height="16" rx="4" fill="#fbfcfd"/>
+    <circle cx="278" cy="733" r="3.5" fill="#3b6cf6"/><text x="290" y="736" font-size="10" fill="#374151">stage12 GLM</text><text x="470" y="736" font-size="9" fill="#9aa1ab">ffs_reml · clustsim</text><text x="712" y="736" font-size="8.5" fill="#9aa1ab" text-anchor="end">always</text>
+    <rect x="268" y="743" width="458" height="16" rx="4" fill="#fafafa"/>
+    <circle cx="278" cy="751" r="3.5" fill="#ffffff" stroke="#c9ced8"/><text x="290" y="754" font-size="10" fill="#9aa1ab">stage12s surface GLM</text><text x="470" y="754" font-size="9" fill="#9aa1ab">-surface_glm</text><text x="712" y="754" font-size="8.5" fill="#9aa1ab" text-anchor="end">off</text>
+  </g>
+
+  <!-- inspector -->
+  <text x="772" y="326" font-size="12.5" font-weight="600" fill="#1f2328">stage02 · moco</text>
+  <rect x="918" y="312" width="70" height="20" rx="10" fill="#eef2ff"/><text x="953" y="326" font-size="9" fill="#3b6cf6" text-anchor="middle">selected</text>
+  <text x="772" y="346" font-size="9.5" fill="#6b7280">ffs_moco · always runs · censoring and motsim are decided here</text>
+  <rect x="772" y="354" width="440" height="1" fill="#eceef2"/>
+
+  <text x="772" y="378" font-size="10" fill="#6b7280">Motion reference</text>
+  <rect x="772" y="384" width="200" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="782" y="400" font-size="10" fill="#374151">sbref (else first volume)</text><text x="958" y="400" font-size="8.5" fill="#9aa1ab">▾</text>
+  <text x="982" y="400" font-size="9" fill="#d98a1f">changed</text>
+  <text x="1040" y="400" font-size="9" fill="#3b6cf6">reset</text>
+
+  <text x="772" y="428" font-size="10" fill="#6b7280">Motion simulation (motsim)</text>
+  <rect x="772" y="434" width="110" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="782" y="450" font-size="10" fill="#374151">off</text><text x="870" y="450" font-size="8.5" fill="#9aa1ab">▾</text>
+  <text x="896" y="450" font-size="9" fill="#9aa1ab">forward | backward | both</text>
+
+  <text x="772" y="478" font-size="10" fill="#6b7280">Censor motion</text>
+  <rect x="772" y="484" width="110" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="782" y="500" font-size="10" fill="#374151">off</text><text x="870" y="500" font-size="8.5" fill="#9aa1ab">▾</text>
+  <text x="896" y="500" font-size="9" fill="#9aa1ab">0.5 when enabled</text>
+  <text x="1090" y="500" font-size="10" fill="#6b7280">Outliers</text>
+  <rect x="1148" y="484" width="64" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="1158" y="500" font-size="10" fill="#374151">0.1</text>
+
+  <text x="772" y="528" font-size="10" fill="#6b7280">Op string (advanced)</text>
+  <rect x="772" y="534" width="440" height="24" rx="5" fill="#1f2937"/><text x="782" y="550" font-size="9.5" fill="#dbe4ef" font-family="SFMono-Regular,Menlo,monospace">-cost wls -twopass</text>
+  <text x="772" y="572" font-size="8.5" fill="#9aa1ab">replace the default tool flags for this stage only · maps to -moco_opts</text>
+  <text x="1200" y="572" font-size="9" fill="#3b6cf6">reset to default →</text>
+
+  <rect x="772" y="584" width="440" height="1" fill="#eceef2"/>
+  <text x="772" y="604" font-size="9.5" fill="#6b7280">Writes</text>
+  <text x="812" y="604" font-size="9.5" fill="#374151" font-family="SFMono-Regular,Menlo,monospace">stage02.moco.* · motsim.1D · QC</text>
+  <text x="772" y="624" font-size="9.5" fill="#6b7280">Re-run</text>
+  <text x="812" y="624" font-size="9.5" fill="#374151">skip if outputs exist ✓ (script var)</text>
+  <text x="772" y="644" font-size="9.5" fill="#6b7280">Inherited</text>
+  <text x="824" y="644" font-size="9.5" fill="#374151">none from recipe complete</text>
+  <rect x="772" y="656" width="440" height="1" fill="#eceef2"/>
+  <text x="772" y="676" font-size="9" fill="#9aa1ab">Stage rows dim when the recipe or the data makes a stage inapplicable — the reason is always shown, never hidden.</text>
+  <text x="772" y="690" font-size="9" fill="#9aa1ab">The script remains the authority; this board explains it.</text>
+
+  <!-- resolved command bar -->
+  <g filter="url(#soft)"><rect x="252" y="804" width="980" height="72" rx="12" fill="#ffffff" stroke="#e4e6eb"/></g>
+  <text x="272" y="826" font-size="10" fill="#6b7280">Resolved command</text>
+  <text x="272" y="844" font-size="9.5" fill="#374151" font-family="SFMono-Regular,Menlo,monospace">ffs_autoproc -bids_dir data/real/ds005165 -subject 01 -task localizer -recipe complete -moco_ref first -do_mni</text>
+  <text x="272" y="864" font-size="9.5" fill="#2f9e44">✓ paths ok</text>
+  <text x="370" y="864" font-size="9.5" fill="#b45309">⚠ complete needs -anat or -suma and a TPM</text>
+  <rect x="936" y="816" width="120" height="28" rx="7" fill="#ffffff" stroke="#d5d9e0"/><text x="996" y="835" font-size="10.5" fill="#374151" text-anchor="middle">Generate script</text>
+  <rect x="1066" y="816" width="138" height="28" rx="7" fill="#3b6cf6"/><text x="1135" y="835" font-size="10.5" fill="#ffffff" text-anchor="middle">Run stage plan</text>
+</svg>

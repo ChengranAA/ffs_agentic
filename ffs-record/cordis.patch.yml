@@ -1,0 +1,6 @@
+# Insert the FFS record reader into the profile. The ledger itself is written by the
+# analysis plugin as runs happen (work/ffs-record/), so this bundle owns reading only.
+- insert:
+    - id: ffs-record
+      name: '@local/ffs-record'
+      config: {}

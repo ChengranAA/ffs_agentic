@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "FFS 记录",
+    "description": "读取 FFS 分析的追加式记录：包含操作者的尝试账本、查询与索引重建。",
+    "detail": "docs/DETAIL.md"
+  }
+}

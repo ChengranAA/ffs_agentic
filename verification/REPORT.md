@@ -1,15 +1,15 @@
 # FFS Harness viewer — independent verification against the original viewer
 
-Generated 2026-11-12 21:06:48 by `verification/verify_all.py`.
+Generated 2026-11-13 15:14:27 by `verification/verify_all.py`.
 
-* Sidecar: `python/ffsviewer` (version 0.1.0, fastfuncstuff 0.1.0, 114 commands), spawned as `python -u -m ffsviewer.server --project-root <repo> --state-dir <tmp> --no-autosave`.
+* Sidecar: `python/ffsviewer` (version n/a, fastfuncstuff n/a, ? commands), spawned as `python -u -m ffsviewer.server --project-root <repo> --state-dir <tmp> --no-autosave`.
 * Reference: `reference/fastfuncstuff` (cloned FFS package), driven in-process via `ViewerSession` and the same FFS command bus.
 * Data: `data/demo` (synthetic phantom, stats bucket, FreeSurfer subject).
-* Runtime: 10.3 s.
+* Runtime: 72.5 s.
 
-## Overall: **PASS**
+## Overall: **FAIL**
 
-10 PASS, 0 FAIL, 0 SKIP, 5 INFO.
+9 PASS, 1 FAIL, 0 SKIP, 5 INFO.
 
 | # | Check | Status | Key evidence |
 |---|---|---|---|
@@ -23,7 +23,7 @@ Generated 2026-11-12 21:06:48 by `verification/verify_all.py`.
 | 7 | Surface selection follows a surface pick | PASS | 2 picks set surfaces.selected to the picked vertex; direct command too |
 | 8 | Incremental tokens: unchanged outlines/colours omitted, state unaffected | PASS | token round-trips omit outlines/colours, keep the PNG, and resend exactly when the view or the display changes |
 | 5 | UI/agent synchronization, revisions, parked slices, LOCK zoom | PASS | 53 commands: ui/agent state and renders identical, rev monotone, categories and counters exact, parked/LOCK semantics match |
-| 6 | Persistence: save/restore, display+analysis split, workspace layout | PASS | restore/auto-restore reproduce the saved state (6 viewports, 3 layers, 0 diffs); split exact (24 display+navigation, 4 source+analysis); display-only save leaves analysis.ffs byte-identical |
+| ? | check_persistence | **FAIL** | check crashed: SidecarTransportError('sidecar did not become ready; stderr tail:\n[ffs-viewer] sidecar 0.1.0 ready') |
 | doc | Recorded observation | INFO | `python/ffsviewer/surface_ops.py` sends the original GLSL folding base (`clip(0.62 - 0.16*fold)`); the browser applies the same view-space headlight (`0.35 + 0.65*abs(n.z)`) and the original overlay light blend. This is an appearance match, not part of the sampling check. |
 | doc | Recorded observation | INFO | `docs/API.md` now documents `viewInfo`, positions+faces with client-derived normals, and the `pick-miss` code; the response payloads match that documentation. |
 | fix | Fixed during verification | INFO | Surface hinge pivoted on un-laid-out positions. `python/ffsviewer/surface_ops.py` passed the raw mesh positions to `hemisphere_models`; the reference 3-D window (`viewer/ui/surfacewindow.py:1743-1767`) pivots on the laid-out positions. Measured before the fix: up to 0.769 mm (hinge 30 deg) / 1.164 mm (hinge -45 deg) world deviation and a differing picked vertex on 2/6 rays. Reproduction: demo, `SET_SURFACE_HINGE S1 30`, compare `surface` mesh positions with the reference construction. Fixed at `surface_ops.py:49-55`; check 2b now measures 7.6e-06 mm residual (float32 vs float64 model application) against that reference. |
@@ -159,26 +159,9 @@ Generated 2026-11-12 21:06:48 by `verification/verify_all.py`.
 - `final_origin`: 'ui'
 - `final_category`: 'navigation'
 
-### 6. Persistence: save/restore, display+analysis split, workspace layout — PASS
+### ?. check_persistence — FAIL
 
-*restore/auto-restore reproduce the saved state (6 viewports, 3 layers, 0 diffs); split exact (24 display+navigation, 4 source+analysis); display-only save leaves analysis.ffs byte-identical*
-
-- `saved_files`: ['analysis.ffs', 'display.ffs', 'screenshots', 'session.json', 'viewer.ffs', 'workspace.json']
-- `log_commands`: 28
-- `display_lines`: 24
-- `analysis_lines`: 4
-- `split_exact`: True
-- `split_overlap`: 0
-- `manifest_ok`: True
-- `manifest_files_exist`: True
-- `display_only_save_ok`: True
-- `display_dirty_before_save`: {'source': False, 'analysis': False, 'display': True}
-- `mutation_changed_state`: True
-- `restore_state_diffs`: 0
-- `restored_flag`: True
-- `workspace_roundtrip`: True
-- `auto_restore_ok`: True
-- `auto_restore_diffs`: 0
+*check crashed: SidecarTransportError('sidecar did not become ready; stderr tail:\n[ffs-viewer] sidecar 0.1.0 ready')*
 
 ### doc. Recorded observation — INFO
 

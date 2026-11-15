@@ -1,5 +1,7 @@
 # FFS Harness viewer
 
+<p align="center"><img src="screenshots/logo_preview.png" width="300" alt="FFS logo — folded cortex and crosshair"></p>
+
 An interactive fMRI viewer for DeepSeek Harness, built on the
 [fastfuncstuff](https://github.com/dowdlelt/fastfuncstuff) viewer. FFS's datasets, layers,
 modes, command controller and independent viewports are preserved; its separate desktop
@@ -8,16 +10,32 @@ the Harness Web interface.
 
 ![Workspace layout](docs/workspace.svg)
 
+## Logo
+
+A monochrome **folded-cortex slice with a crosshair** inside a hexagonal slice contour.
+`ffs-harness-viewer/icon.svg` is the standalone tab icon; `ffs-harness-viewer/logo.svg`
+is the icon + **FFS** lockup.
+
 ## What is here
 
 | Path | What |
 |---|---|
+| `ffs-record/` | `@local/ffs-record` bundle (R0–R5): Host tools/route over the append-only ledger, decisions, preferences and inspection index, plus a **Record tab** Client surface. **Installed** in the `desktop` profile (Host tools live; reload the page for the Client tab) |
+| `docs/PHILOSOPHY_CONFORMANCE.md` | re-audited charter conformance map: **13 met / 0 partial / 0 absent**, with file-level evidence and residual gaps |
+| `scripts/compact_inspection.py` | inspection retention: compact old viewer sessions (age/byte budget) into compact records with tombstones; `--dry-run` supported |
+| `python/ffsrecord/` | R3 deterministic preference layer: inspection-session feature shards, policy.yaml, profile aggregation, precedence resolution, `python -m ffsrecord.cli` |
+| `shared/record/` | dependency-free record store shared by the analysis and record bundles (append-only shards, actors, fold, rebuild, legacy import) |
 | `ffs-harness-viewer/` | the Harness bundle: Host plugin (`index.js`: sidecar manager, authenticated `/ffs` bridge route, ten agent tools) and Client plugin (`client.js`: right-Sidebar tab with docked slice/surface/series panes) |
 | `python/ffsviewer/` | headless FFS sidecar: authoritative `ViewerSession`, validated command dispatch, PNG slice rendering, surface sampling/picking, series extraction, persistence |
 | `reference/fastfuncstuff` | read-only clone of the original viewer/scientific core the sidecar imports |
 | `data/demo/` | deterministic demo dataset + synthetic FreeSurfer subject (`scripts/build_demo_data.py`) |
 | `docs/API.md` | the shared validated command/transport contract |
 | `docs/WORKFLOW.md` | FFS analysis workflow and plugin-integration design (compute ↔ viewer ↔ project manifest) |
+| `docs/ANALYSIS_UI.md` | analysis inspection UI design: tab, cohort/group views, slots, transport, wireframes |
+| `docs/ANALYSIS_PANEL.md` | **design v0.3 (autoproc-centred)** for the analysis panel: recipe presets, the 19-stage board, grouped editing of the 172 autoproc flags, scratch runner, inline QC verdicts |
+| `docs/analysis_panel_*.svg` | design sketches: stage board + inspector, all-options drawer, QC decisions (v0.3) |
+| `docs/RECORD.md` | record-layer design and build status: run-attempt ledger, decision records, durable inspection log, preference profile, deletion semantics, milestones R0–R5 built |
+| `docs/REPRO_PACKAGE.md` | reproducible cohort/group package: runnable scripts, STEPS/METHODS, verification |
 | `docs/FEATURE_INVENTORY.md` | exhaustive inventory of the original viewer, source-referenced |
 | `docs/PARITY.md` | feature parity tracker (implemented / partial / not started / out of scope) |
 | `docs/COMMAND_REFERENCE.md` | generated reference for all 114 FFS commands |
@@ -36,6 +54,22 @@ maximize.
 
 After a client-plugin update, refresh the Harness page once so the Web loader fetches the
 new `client.js`; the Host half and its Python sidecar reload with the bundle row.
+
+### Record tab installation
+
+The record bundle **is installed** in the `desktop` profile (linked from `ffs-record/`, bundle
+row appended, `package.json` backed up). The Host half is live — `ffs_record_query` and
+`ffs_record_rebuild` respond — and the Client half is registered live (Record tab body and
+header button active in the slot tree; reload the page if the tab is not visible):
+
+```bash
+bash scripts/install_record_bundle.sh --dry-run   # inspect the plan; writes nothing
+bash scripts/install_record_bundle.sh --apply     # already run for the desktop profile
+```
+
+After reloading, the **Record** tab appears in the right Sidebar (and a Record button in the
+Session header). Visual behavior of the docked tab has not been verified here (no browser
+control); the Host routes/tools and the client factory/render smoke are covered by tests.
 
 Requirements: `.venv/bin/python` with `numpy`, `scipy`, `nibabel`, `torch`, `tqdm`
 (see `reference/fastfuncstuff/pyproject.toml`), and the sidecar launched with
@@ -119,6 +153,8 @@ Panes are floating windows inside the docked Sidebar tab, with just two gestures
   still down to snap. Without Shift, releasing anywhere — including at an edge — keeps
 the free position, so ordinary drags never snap by accident.
 - **Resize** — drag any window edge/corner, or the visible **◢** grip at the bottom-right.
+- **Minimize** — **–** in a window title sends it to the bottom **Minimized:** taskbar; click
+the chip to restore it. Clicking anywhere in a window raises it to the front.
 
 The initial placement is a 2×2 arrangement; after that every pane is free to move,
 overlap, snap to an edge, or be resized to any proportion. Window positions and sizes persist in `workspace.json`, alongside the tab
@@ -132,8 +168,11 @@ graph, or surface). The menu's **Data** chooser selects the whole visible stack 
 layer (solo view); each viewer's ⚙ settings has a **Data** selector too. Views share the
 session layer stack, so solo views follow the selected layer.
 
-The left **Controls** rail is a collapsible card inspector: layer visibility and unload,
-opacity, threshold on/off with a numeric entry and slider, colormap, range entry with **Auto** and an interactive colour bar (drag end handles for min/max, click/drag the bar for threshold), sign, **OLAY** shown sub-brick,
+The left **Controls** rail is a collapsible card inspector: **Layers**, **Colour** and
+**Overlay** cards; **Colour** holds the selected layer, opacity, colormap, sign and the
+range bar (min/max inputs + **Auto** + mirror/fixed/reverse); **Overlay** holds the OLAY /
+THR ON sub-brick selectors, threshold on/off with numeric entry + slider, alpha and
+boxed/edges/time-linked options. Layer visibility and unload live in Layers; and a horizontal colour bar (min left/max right, click to set threshold when THR ON reads this sub-brick (the bar grays out otherwise), Shift+click to reverse, sub-threshold dimming), sign, **OLAY** shown sub-brick,
 **THR ON** threshold sub-brick with same/+1/+2/fixed follow, and an Advanced disclosure
 for resample, sub-threshold fade, boxed, range mirror/fixed, reverse, edges, time-linked
 and time-view detrend/PSC.

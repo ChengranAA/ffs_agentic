@@ -12,10 +12,12 @@ import base64
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,6 +34,7 @@ from fastfuncstuff.viewer import compose  # noqa: E402
 from fastfuncstuff.viewer.session import ViewerSession  # noqa: E402
 
 from . import persist, png, series_ops, surface_ops  # noqa: E402
+from .inspection import InspectionLog  # noqa: E402
 from .classify import (  # noqa: E402
     CATEGORIES,
     CATEGORY_ANALYSIS,
@@ -84,6 +87,15 @@ class Sidecar:
         self.meta = self._fresh_meta()
         self.meta["notice"] = None
         self.meta["stateDir"] = str(self.state_dir)
+        try:
+            self.inspection: InspectionLog | None = InspectionLog(
+                self.state_dir, self.project_root, version=VERSION
+            )
+            self.inspection.start()
+        except Exception:  # a broken record must never prevent the viewer from opening
+            traceback.print_exc(file=sys.stderr)
+            self.inspection = None
+        self._process_deletion_queue()
 
     # -- bookkeeping ---------------------------------------------------
     def _fresh_meta(self) -> dict:
@@ -138,6 +150,89 @@ class Sidecar:
                 print(f"[ffs-viewer] unclassified commands: {missing}", file=sys.stderr)
         return self.session
 
+    def _compact_inspection_logs(self) -> None:
+        """Run the retention tiers on shutdown (newest sessions stay raw). The compaction
+        script is the single implementation; this is only the schedule."""
+        if os.environ.get("FFS_RECORD_NO_COMPACT"):
+            return
+        script = ROOT / "scripts" / "compact_inspection.py"
+        if not script.exists():
+            return
+        try:
+            args = [
+                sys.executable, str(script), "--state-dir", str(self.state_dir),
+                "--raw-days", os.environ.get("FFS_RECORD_COMPACT_DAYS", "30"),
+                "--raw-bytes", os.environ.get("FFS_RECORD_COMPACT_BYTES", str(64 * 1024 * 1024)),
+                "--keep-sessions", os.environ.get("FFS_RECORD_COMPACT_KEEP", "20"),
+            ]
+            completed = subprocess.run(args, capture_output=True, text=True, timeout=120)
+            if completed.returncode == 0:
+                summary = json.loads(completed.stdout or "{}")
+                if summary.get("compacted"):
+                    print(f"[ffs-viewer] retention compacted {len(summary['compacted'])} inspection session(s)",
+                          file=sys.stderr)
+            else:
+                print(f"[ffs-viewer] retention failed: {(completed.stderr or '').strip()[-500:]}", file=sys.stderr)
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
+
+    def _process_deletion_queue(self) -> None:
+        """Apply queued raw inspection deletions. The sidecar is the sole writer here; the
+        record layer only ever appends requests, never removes these files itself."""
+        inspection_dir = (self.state_dir / "inspection").resolve()
+        queue = inspection_dir / "deletion-queue.jsonl"
+        if not queue.exists():
+            return
+        try:
+            entries = [json.loads(line) for line in queue.read_text(encoding="utf-8").splitlines() if line.strip()]
+        except (OSError, json.JSONDecodeError):
+            return
+        receipts = []
+        deleted = 0
+        for entry in entries:
+            session_id = str(entry.get("sessionId") or "")
+            done, missing = [], []
+            for raw in entry.get("paths") or []:
+                target = Path(str(raw)).resolve()
+                try:
+                    target.relative_to(inspection_dir)
+                except ValueError:
+                    missing.append(str(raw))
+                    continue
+                try:
+                    if target.exists():
+                        target.unlink()
+                        done.append(str(target.relative_to(inspection_dir)))
+                        deleted += 1
+                    else:
+                        missing.append(str(target.relative_to(inspection_dir)))
+                except OSError:
+                    missing.append(str(target))
+            receipts.append({
+                "schema": "ffs-inspection-deletion-receipt/1",
+                "sessionId": session_id,
+                "at": datetime.now(timezone.utc).isoformat(),
+                "deleted": done,
+                "missing": missing,
+            })
+        if receipts:
+            with (inspection_dir / "deletion-receipts.jsonl").open("a", encoding="utf-8") as handle:
+                for receipt in receipts:
+                    handle.write(json.dumps(receipt, sort_keys=True) + "\n")
+            queue.write_text("", encoding="utf-8")
+            print(f"[ffs-viewer] applied {deleted} queued inspection deletion(s)", file=sys.stderr)
+
+    def _record_baseline(self) -> None:
+        """Capture the seq-0 FFS state script once the viewer has a real state."""
+        if self.inspection is None or self.session is None or self.inspection.baseline_info:
+            return
+        try:
+            header = f"FFS inspection baseline -- {self.inspection.session_id}\n" \
+                     "Open this before replaying the session's inspection event stream."
+            self.inspection.baseline(self.session.to_script(header=header), self.snapshot())
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
+
     def _demo_paths(self) -> dict[str, Path]:
         demo = self.project_root / "data" / "demo"
         return {
@@ -173,6 +268,12 @@ class Sidecar:
                 self.meta["revByCategory"]["layout"] = self.meta["revByCategory"].get("layout", 0) + 1
                 self.meta["lastSaveRev"] = self.meta["commandCount"]
                 self._await_resident()
+                if self.inspection is not None:
+                    try:
+                        self.inspection.context({"restored": True, "disposition": "restore"})
+                    except Exception:
+                        traceback.print_exc(file=sys.stderr)
+                self._record_baseline()
                 return {
                     "state": self.snapshot(),
                     "restored": True,
@@ -181,9 +282,13 @@ class Sidecar:
                 }
 
         if explicit:
-            return self._open_paths(list(explicit), subject)
+            result = self._open_paths(list(explicit), subject)
+            self._record_baseline()
+            return result
 
-        return self._open_empty()
+        result = self._open_empty()
+        self._record_baseline()
+        return result
 
     def _open_empty(self) -> dict:
         """A fresh viewer with no dataset: the Sources picker is the way in.
@@ -358,8 +463,17 @@ class Sidecar:
         self._maybe_autosave()
         if cmd.name in LIMITED_COMMANDS:
             self._await_resident()
+        state = self.snapshot()
+        if self.inspection is not None:
+            try:
+                self.inspection.command(
+                    line=cmd.to_line(), name=cmd.name, category=category,
+                    origin=origin, snapshot=state,
+                )
+            except Exception:  # inspecting is never allowed to break the command
+                traceback.print_exc(file=sys.stderr)
         return {
-            "state": self.snapshot(),
+            "state": state,
             "dirty": aspects_names(dirty),
             "command": cmd.to_line(),
             "name": cmd.name,
@@ -380,7 +494,10 @@ class Sidecar:
             # Cheap and side-effect free: the browser needs to know whether the
             # saved workspace was open before deciding to load a dataset.
             self.meta["workspace"] = persist.load_workspace(self.state_dir)
-        return build_snapshot(self.session, self.meta)
+        state = build_snapshot(self.session, self.meta)
+        if self.inspection is not None:
+            state["inspection"] = self.inspection.status()
+        return state
 
     def hello(self) -> dict:
         return {
@@ -391,6 +508,7 @@ class Sidecar:
             "stateDir": str(self.state_dir),
             "device": "cpu",
             "commands": len(ffs_commands.registered_names()),
+            "inspection": self.inspection.status() if self.inspection is not None else None,
         }
 
     def commands(self) -> dict:
@@ -522,20 +640,49 @@ class Sidecar:
         return {"state": self.snapshot(), "key": key, "range": [lo, hi]}
 
     def colorbar(self, params: dict) -> dict:
-        """An exact colour-scale strip from the viewer's own LUT."""
-        from fastfuncstuff.viewer.colormap import available_colormaps, build_lut
+        """The colour bar exactly as the original ColorBar draws it.
+
+        Values run hi -> lo (max at the top), through the layer's LUT, sign mode
+        and panes; sub-threshold values are dimmed with the same fade the alpha
+        ramp uses instead of being blanked.
+        """
+        import torch
+
+        from fastfuncstuff.viewer.colormap import apply_colormap, available_colormaps, build_lut
+        from fastfuncstuff.viewer.layers import SignMode
 
         name = str(params.get("colormap") or "gray")
         if name not in available_colormaps():
             raise SidecarError("not-found", f"unknown colormap {name!r}", {"colormap": name})
         count = max(8, min(256, int(params.get("n", 64))))
         reverse = bool(params.get("reverse", False))
-        lut = build_lut(name, count, reverse=reverse).detach().cpu().numpy()
+        lo = float(params.get("lo", 0.0))
+        hi = float(params.get("hi", 1.0))
+        if not (hi > lo):
+            hi = lo + 1.0
+        threshold = abs(float(params.get("threshold", 0.0) or 0.0))
+        sign = str(params.get("sign") or "both")
+        alpha = str(params.get("alpha") or "off")
+        panes = int(params.get("panes", 0) or 0)
+        lut = build_lut(name, 256, device=torch.device("cpu"), reverse=reverse)
+        values = torch.linspace(hi, lo, count, device=torch.device("cpu"))
+        rgb = apply_colormap(
+            values, lut=lut, lo=lo, hi=hi,
+            sign_mode=SignMode(sign), n_panes=panes,
+        )
+        if threshold > 0:
+            fade = 0.28 if alpha == "off" else 0.55
+            cut = values.abs() < threshold
+            rgb = torch.where(cut[:, None], rgb * fade, rgb)
         colors = [
             [int(round(float(channel) * 255.0)) for channel in row]
-            for row in lut
+            for row in rgb.clamp(0, 1).cpu().numpy()
         ]
-        return {"colormap": name, "reverse": reverse, "colors": colors}
+        return {
+            "colormap": name, "reverse": reverse, "lo": lo, "hi": hi,
+            "threshold": threshold, "sign": sign, "alpha": alpha, "panes": panes,
+            "colors": colors,
+        }
 
     def pick(self, params: dict) -> dict:
         self.ensure_session()
@@ -889,6 +1036,8 @@ class Sidecar:
                     {"path": str(subject_path)},
                 )
             self.execute(f"LOAD_SURFACES {_quote(subject_path)} lh,rh", origin)
+            if not self.session.state.surfaces_shown:
+                self.session.state.surfaces_shown = ("white", "pial")
         if not len(self.session.state.viewports):
             for plane, vid in (("axial", "V1"), ("sagittal", "V2"), ("coronal", "V3")):
                 self.execute(f"OPEN_VIEW {vid} image {plane}", origin)
@@ -919,16 +1068,30 @@ class Sidecar:
         return True
 
     def _prune_surface_log(self) -> None:
-        """Drop every recorded surface/outline command from the replay logs."""
+        """Drop every recorded surface/outline command from the replay logs.
+
+        The .ffs replay scripts must not resurrect an unloaded subject, but the inspection log
+        is the history and is exempt; a prune frame records what the replay lost.
+        """
         assert self.session is not None
         bus = getattr(self.session, "bus", None)
         log = getattr(bus, "_log", None)
+        removed = 0
         if isinstance(log, list):
+            before = len(log)
             log[:] = [cmd for cmd in log if not _is_surface_command_name(getattr(cmd, "name", ""))]
+            removed += before - len(log)
+        before_entries = len(self.command_log)
         self.command_log = [
             entry for entry in self.command_log
             if not _line_is_surface_command(entry.get("line", ""))
         ]
+        removed += before_entries - len(self.command_log)
+        if removed and self.inspection is not None:
+            try:
+                self.inspection.prune(count=removed, reason="surface-unload")
+            except Exception:
+                traceback.print_exc(file=sys.stderr)
 
     def clear_surfaces(self, params: dict) -> dict:
         """Unload the loaded FreeSurfer subject; the Scene card then reports no subject."""
@@ -1159,6 +1322,8 @@ class Sidecar:
                 {"path": str(path)},
             )
         self.execute(f"LOAD_SURFACES {_quote(path)} lh,rh", str(params.get("origin") or "ui"))
+        if not self.session.state.surfaces_shown:
+            self.session.state.surfaces_shown = ("white", "pial")
         if not any(vp.kind.value == "surface" for vp in self.session.state.viewports):
             self.execute("OPEN_VIEW S1 surface", str(params.get("origin") or "ui"))
         data = self._sources_data()
@@ -1216,6 +1381,14 @@ class Sidecar:
             self.meta["dirty"][category] = False
         self.meta["lastSaveRev"] = self.meta["commandCount"]
         self.meta["lastSaveAtRev"] = self.meta["rev"]
+        if self.inspection is not None:
+            try:
+                self.inspection.save(note=note, files={
+                    "savedAt": result["manifest"]["savedAt"],
+                    "counts": result["manifest"].get("counts"),
+                })
+            except Exception:
+                traceback.print_exc(file=sys.stderr)
         return {"saved": True, **result}
 
     def restore(self) -> dict:
@@ -1253,6 +1426,27 @@ class Sidecar:
                 self.session.close()
             except Exception:
                 pass
+        # Inspection evidence is complete at shutdown: recompute the deterministic profile so
+        # the next plan sees current evidence without a manual CLI step.
+        if not os.environ.get("FFS_RECORD_NO_RECOMPUTE"):
+            try:
+                from ffsrecord.profile import ingest_sessions, recompute
+                ingest_sessions(self.project_root, self.state_dir)
+                profile = recompute(self.project_root)
+                print(
+                    f"[ffs-viewer] preference profile recomputed: "
+                    f"{profile['evidence']['sessions']} session(s), "
+                    f"{len(profile['preferences'])} preference(s)",
+                    file=sys.stderr,
+                )
+            except Exception:
+                traceback.print_exc(file=sys.stderr)
+        self._compact_inspection_logs()
+        if self.inspection is not None:
+            try:
+                self.inspection.end()
+            except Exception:
+                traceback.print_exc(file=sys.stderr)
         return {"ok": True, "saved": saved is not None}
 
     # -- dispatch ------------------------------------------------------
@@ -1271,6 +1465,30 @@ class Sidecar:
                 result = self.execute_batch(list(params.get("lines") or []), str(params.get("origin") or "ui"))
             elif method == "state":
                 result = self.snapshot()
+            elif method == "inspection_state":
+                result = self.inspection.status() if self.inspection is not None else None
+            elif method == "inspection_capture":
+                if self.inspection is None:
+                    raise SidecarError("record-unavailable", "inspection log unavailable")
+                result = self.inspection.compute(
+                    self.snapshot(),
+                    label=params.get("label"),
+                )
+            elif method == "inspection_mark":
+                if self.inspection is None:
+                    raise SidecarError("record-unavailable", "inspection log unavailable")
+                result = self.inspection.mark(
+                    text=str(params.get("text") or ""),
+                    tags=list(params.get("tags") or []),
+                    kind=str(params.get("kind") or "mark"),
+                    correction_of=params.get("correctionOf"),
+                    snapshot=self.snapshot(),
+                    capture=bool(params.get("capture", True)),
+                )
+            elif method == "inspection_pause":
+                if self.inspection is None:
+                    raise SidecarError("record-unavailable", "inspection log unavailable")
+                result = self.inspection.pause(bool(params.get("paused")))
             elif method == "render":
                 result = self.render(
                     str(params.get("view") or ""),

@@ -119,6 +119,7 @@ window.__ModuleLoader__.load({
       .ffs-control-head { display: flex; align-items: center; justify-content: space-between; gap: 6px;
         font-size: 10px; color: ${TOKENS.muted}; }
       .ffs-control-value { font: 10px ui-monospace, monospace; color: ${TOKENS.text}; }
+      .ffs-control input[type=range]:disabled { opacity: .4; }
       .ffs-control input[type=range] { width: 100%; margin: 0; accent-color: ${TOKENS.brand}; }
       .ffs-number-field { width: 100%; min-width: 0; flex: 1; box-sizing: border-box; text-align: right; }
       .ffs-control input[type=number] { width: 58px; background: ${TOKENS.layer2}; color: ${TOKENS.text};
@@ -138,6 +139,30 @@ window.__ModuleLoader__.load({
         cursor: ew-resize; box-shadow: 0 1px 2px rgba(0,0,0,.35); }
       .ffs-colorbar-handle.lo { left: 0; transform: translateX(-50%); }
       .ffs-colorbar-handle.hi { right: 0; transform: translateX(50%); }
+      .ffs-rangebar { display: flex; flex-direction: column; gap: 5px; }
+      .ffs-colorbar-h { position: relative; width: 100%; height: 18px; border: 1px solid ${TOKENS.border};
+        border-radius: 4px; overflow: hidden; cursor: pointer; touch-action: none; background: ${TOKENS.layer2}; }
+      .ffs-colorbar-h.disabled { cursor: not-allowed; }
+      .ffs-colorbar-h.disabled .ffs-colorbar-canvas { filter: grayscale(1); opacity: .3; }
+      .ffs-colorbar-blocked { position: absolute; inset: 0; z-index: 4; display: flex; align-items: center;
+        justify-content: center; padding: 0 4px; background: rgba(12, 16, 22, .58); color: ${TOKENS.muted};
+        font-size: 8px; letter-spacing: .045em; text-transform: uppercase; text-align: center;
+        pointer-events: none; }
+      .ffs-colorbar-canvas { position: absolute; inset: 0; width: 100%; height: 100%;
+        display: block; pointer-events: none; image-rendering: auto; }
+      .ffs-colorbar-line.v { left: auto; right: auto; top: 0; bottom: 0; width: 1px; height: auto; }
+      .ffs-colorbar-v { position: relative; width: 24px; height: 154px; flex: 0 0 24px;
+        border: 1px solid ${TOKENS.border}; border-radius: 4px; overflow: hidden; cursor: pointer;
+        touch-action: none; }
+      .ffs-colorbar-line { position: absolute; left: 0; right: 0; height: 1px; z-index: 2; pointer-events: none;
+        background: ${TOKENS.warn}; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+      .ffs-rangebar-side { display: flex; flex-direction: row; gap: 6px; min-width: 0; }
+      .ffs-threshold-note { display: flex; align-items: center; flex-wrap: wrap; gap: 5px;
+        color: ${TOKENS.muted}; font-size: 10px; line-height: 1.35; }
+      .ffs-rangebar-gap { flex: 1; }
+      .ffs-rangebar-field { flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; }
+      .ffs-rangebar-label { width: 26px; flex: 0 0 26px; color: ${TOKENS.muted}; font-size: 9px;
+        text-transform: uppercase; letter-spacing: .06em; }
       .ffs-colorbar-thr { position: absolute; top: -1px; bottom: -1px; width: 2px;
         background: #f7768e; box-shadow: 0 0 0 1px rgba(0,0,0,.45); }
       .ffs-colorbar-labels { display: flex; justify-content: space-between;
@@ -825,15 +850,22 @@ window.__ModuleLoader__.load({
         style: { display: 'block', flex: '0 0 auto' },
       },
         h('path', {
-          d: 'M18 5.8c-5.3 0-9.2 3.4-9.2 8.4 0 5.2 4 9.8 9.2 11.4 5.2-1.6 9.2-6.2 9.2-11.4 0-5-3.9-8.4-9.2-8.4Z',
-          fill: 'none', stroke: 'currentColor', strokeWidth: 2.1, strokeLinejoin: 'round',
+          d: 'M18 4.2 30.4 11.3v13.4L18 31.8 5.6 24.7V11.3Z',
+          fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinejoin: 'round',
         }),
-        h('path', { d: 'M18 8.6v15.9', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, opacity: 0.55 }),
         h('path', {
-          d: 'M13.2 12.1c1.9 1 2.9 2.5 2.9 4.6 0 2.1-1 3.6-2.9 4.6M22.8 12.1c-1.9 1-2.9 2.5-2.9 4.6 0 2.1 1 3.6 2.9 4.6',
-          fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, opacity: 0.7, strokeLinecap: 'round',
+          d: 'M12 11.8c2.3 0 3.2 1.8 2.1 3.2s-3.1 1.6-3.1 3.2 1.4 2.9 3.4 2.9',
+          fill: 'none', stroke: 'currentColor', strokeWidth: 1.55, opacity: 0.72, strokeLinecap: 'round',
         }),
-        h('path', { d: 'M11.5 16.1h13M17.1 10.2v11.8', fill: 'none', stroke: '#e55934', strokeWidth: 1.1 }),
+        h('path', {
+          d: 'M24 11.8c-2.3 0-3.2 1.8-2.1 3.2s3.1 1.6 3.1 3.2-1.4 2.9-3.4 2.9',
+          fill: 'none', stroke: 'currentColor', strokeWidth: 1.55, opacity: 0.72, strokeLinecap: 'round',
+        }),
+        h('path', {
+          d: 'M18 8.8v4.3M18 22.9v4.3M8.8 18h4.3M22.9 18h4.3',
+          fill: 'none', stroke: 'currentColor', strokeWidth: 1.55, strokeLinecap: 'round',
+        }),
+        h('circle', { cx: 18, cy: 18, r: 1.65, fill: 'currentColor' }),
       )
     }
 
@@ -1268,7 +1300,12 @@ window.__ModuleLoader__.load({
           const next = clone(currentLayout)
           next.docks = appendGroupNode(next.docks, groupNode(`g-${id}`, [id]))
           next.mode = 'floating'
-          setLayout(normalizeWindows(next))
+          const normalized = normalizeWindows(next)
+          const top = Math.max(0, ...Object.values(normalized.windows || {}).map(item => Number(item.z) || 0))
+          if (normalized.windows && normalized.windows[`g-${id}`]) {
+            normalized.windows[`g-${id}`].z = top + 1
+          }
+          setLayout(normalized)
           setAddMenu(false)
           setNewViewLayer('all')
         }).catch(() => {})
@@ -1400,6 +1437,12 @@ window.__ModuleLoader__.load({
         h('span', { className: `ffs-chip ${dirty.analysis ? 'warn' : 'ok'}`, title: 'Analysis changes computed new data' }, `analysis${dirty.analysis ? ' •' : ''}`),
         h('span', { className: `ffs-chip ${dirty.source ? 'warn' : 'ok'}`, title: 'Source changes altered loaded data' }, `source${dirty.source ? ' •' : ''}`),
         h('span', { className: 'ffs-chip', title: 'Authoritative state revision' }, `rev ${snapshot.rev}`),
+        snapshot.inspection
+          ? h('span', {
+            className: `ffs-chip ${snapshot.inspection.paused ? 'warn' : 'ok'}`,
+            title: `${snapshot.inspection.sessionId} · ${snapshot.inspection.path} · seq ${snapshot.inspection.seq}${snapshot.inspection.baseline ? ' · baseline recorded' : ''}`,
+          }, snapshot.inspection.paused ? 'record paused' : `rec ${snapshot.inspection.seq}`)
+          : null,
       )
     }
 
@@ -1625,6 +1668,7 @@ window.__ModuleLoader__.load({
       const [box, setBox] = useState({ w: 0, h: 0 })
       const [snapRect, setSnapRect] = useState(null)
       const snapRef = useRef(null)
+      const zRef = useRef(Math.max(10, ...Object.values(windows).map(item => Number(item.z) || 0)))
       const zoneRef = useRef(null)
 
       useEffect(() => {
@@ -1646,6 +1690,27 @@ window.__ModuleLoader__.load({
       const patchWindow = (id, patch) => mutate(next => {
         if (next.windows && next.windows[id]) next.windows[id] = { ...next.windows[id], ...patch }
       })
+      const focusWindow = (id) => {
+        const current = windows[id]
+        if (!current) return
+        const top = Math.max(...Object.values(windows).map(item => Number(item.z) || 0))
+        if ((Number(current.z) || 0) >= top) return
+        zRef.current = top + 1
+        patchWindow(id, { z: zRef.current })
+      }
+      const minimizeWindow = (group) => {
+        mutate(next => {
+          const window = next.windows && next.windows[group.id]
+          if (window) next.windows[group.id] = { ...window, minimized: true }
+        })
+      }
+      const restoreWindow = (group) => {
+        zRef.current += 1
+        mutate(next => {
+          const window = next.windows && next.windows[group.id]
+          if (window) next.windows[group.id] = { ...window, minimized: false, z: zRef.current }
+        })
+      }
       // Free dragging is the default. Snapping is modifier-only: hold Shift while
       // the pointer is in the edge/corner band. Without Shift, releasing anywhere
       // keeps the free position, so an ordinary drag can never snap by accident.
@@ -1781,6 +1846,7 @@ window.__ModuleLoader__.load({
               width: `${rect.w * 100}%`, height: `${rect.h * 100}%`,
               zIndex: rect.z || 1,
             },
+            onPointerDown: () => focusWindow(group.id),
           },
             h('div', {
               className: 'ffs-float-head',
@@ -1790,6 +1856,11 @@ window.__ModuleLoader__.load({
               h('span', { className: 'ffs-grip', 'aria-hidden': true }, '⠿'),
               h('span', { className: 'ffs-float-title' }, title),
               h('span', { className: 'ffs-float-hint' }, 'Shift + edge snaps'),
+              h('button', {
+                type: 'button', className: 'ffs-float-btn', title: 'Minimize viewer',
+                onPointerDown: event => event.stopPropagation(),
+                onClick: event => { event.stopPropagation(); minimizeWindow(group) },
+              }, '–'),
             ),
             h('div', { className: 'ffs-float-body' },
               h(GroupPane, { node: group, layout, snapshot, dispatch, run, busy, setLayout }),
@@ -1804,6 +1875,17 @@ window.__ModuleLoader__.load({
             }, '◢'),
           )
         }),
+        minimized.length
+          ? h('div', { className: 'ffs-taskbar' },
+            h('span', { className: 'ffs-hint', style: { padding: '0 4px' } }, 'Minimized:'),
+            minimized.map(group => {
+              const active = (group.tabs || []).includes(group.active) ? group.active : group.tabs[0]
+              return h('button', {
+                key: group.id, className: 'ffs-task-chip', title: 'Restore viewer',
+                onClick: () => restoreWindow(group),
+              }, viewerLabel(active))
+            }))
+          : null,
         snapRect
           ? h('div', { className: 'ffs-snap-overlay' },
             h('div', {
@@ -2020,8 +2102,11 @@ window.__ModuleLoader__.load({
           }
         }
         if (frame.crosshairPx) {
-          const cx = dx + frame.crosshairPx[1] * dw
-          const cy = dy + frame.crosshairPx[0] * dh
+          // FFS draws the crosshair at the voxel centre: (index + 0.5) * scale.
+          const spanX = Math.max(1, frame.viewInfo?.span?.[0] || 1)
+          const spanY = Math.max(1, frame.viewInfo?.span?.[1] || 1)
+          const cx = dx + (frame.crosshairPx[1] + 0.5 / spanX) * dw
+          const cy = dy + (frame.crosshairPx[0] + 0.5 / spanY) * dh
           ctx.strokeStyle = 'rgba(255,80,80,.9)'
           ctx.lineWidth = 1
           ctx.beginPath()
@@ -3277,91 +3362,111 @@ window.__ModuleLoader__.load({
       })
     }
 
+    function RangeNumber({ label, value, onCommit }) {
+      const [draft, setDraft] = useState(value)
+      useEffect(() => { setDraft(value) }, [value])
+      const commit = () => {
+        const next = Number(draft)
+        if (Number.isFinite(next)) onCommit(next)
+        else setDraft(value)
+      }
+      return h('div', { className: 'ffs-rangebar-field' },
+        h('span', { className: 'ffs-rangebar-label' }, label),
+        h('input', {
+          type: 'number', step: 'any', className: 'ffs-number-field',
+          value: draft, onChange: event => setDraft(event.target.value),
+          onBlur: commit,
+          onKeyDown: event => { if (event.key === 'Enter') event.currentTarget.blur() },
+        }),
+      )
+    }
+
     function ColorBar({ layer, run, set, setSoon }) {
       const [colors, setColors] = useState(null)
       const barRef = useRef(null)
-      const dragRef = useRef(null)
-      const token = `${layer.colormap || 'gray'}:${layer.colormapReversed ? 1 : 0}`
+      const canvasRef = useRef(null)
+      const lo = Number(layer.rangeLo ?? 0)
+      const hi = Number(layer.rangeHi ?? 1)
+      const span = hi - lo
+      const follows = layer.thresholdIndex == null || Number(layer.thresholdIndex) === Number(layer.volumeIndex)
+      const threshold = follows ? Math.abs(Number(layer.threshold) || 0) : 0
+      const sign = layer.signMode || 'both'
+      const panes = Number(layer.nPanes) || 0
+      const token = [
+        layer.colormap || 'gray', layer.colormapReversed ? 1 : 0, lo, hi,
+        threshold, sign, layer.alphaMode || 'off', panes,
+      ].join('|')
       const tokenRef = useRef(null)
       useEffect(() => {
         if (tokenRef.current === token) return
         tokenRef.current = token
         run('colorbar', {
-          colormap: layer.colormap || 'gray', n: 48, reverse: Boolean(layer.colormapReversed),
+          colormap: layer.colormap || 'gray', n: 256,
+          reverse: Boolean(layer.colormapReversed),
+          lo, hi, threshold, sign, alpha: layer.alphaMode || 'off', panes,
         }, null, { quiet: true }).then(result => {
           if (result && result.colors) setColors(result.colors)
         }).catch(() => { tokenRef.current = null })
-      }, [token, layer.colormap, layer.colormapReversed, run])
-      const lo = Number(layer.rangeLo ?? 0)
-      const hi = Number(layer.rangeHi ?? 1)
-      const span = hi - lo
-      const threshold = Math.abs(Number(layer.threshold) || 0)
-      const inRange = span > 0 && threshold > lo && threshold < hi
-      const marker = inRange ? clamp((threshold - lo) / span, 0, 1) : null
-      const gradient = colors && colors.length
-        ? `linear-gradient(90deg, ${colors.map((color, index) => `rgb(${color[0]},${color[1]},${color[2]}) ${(index / Math.max(colors.length - 1, 1)) * 100}%`).join(', ')})`
-        : 'linear-gradient(90deg, #222, #888)'
-      const startDrag = (event, mode) => {
+      }, [token, layer.colormap, layer.colormapReversed, lo, hi, threshold, sign, layer.alphaMode, panes, run])
+      // Draw the LUT ourselves instead of relying on a CSS gradient: it keeps
+      // the exact endpoint colours and avoids edge blending artefacts.
+      useEffect(() => {
+        const canvas = canvasRef.current
+        if (!canvas || !colors || !colors.length) return
+        // Server rows run hi -> lo (max at top, as in the original vertical
+        // bar); a horizontal bar reads min -> max left to right.
+        const ordered = colors.slice().reverse()
+        canvas.width = ordered.length
+        canvas.height = 1
+        const context = canvas.getContext('2d')
+        if (!context) return
+        const image = context.createImageData(ordered.length, 1)
+        for (let index = 0; index < ordered.length; index += 1) {
+          image.data[index * 4] = ordered[index][0]
+          image.data[index * 4 + 1] = ordered[index][1]
+          image.data[index * 4 + 2] = ordered[index][2]
+          image.data[index * 4 + 3] = 255
+        }
+        context.putImageData(image, 0, 0)
+      }, [colors])
+      const lines = []
+      if (span > 0 && threshold > 0) {
+        for (const edge of [threshold, -threshold]) {
+          if (sign === 'pos' && edge < 0) continue
+          if (sign === 'neg' && edge > 0) continue
+          if (edge <= lo || edge >= hi) continue
+          lines.push({ edge, fraction: (edge - lo) / span })
+        }
+      }
+      const clampToBar = (fraction) => Math.min(1, Math.max(0, fraction))
+      const start = (event) => {
         if (event.button !== 0) return
-        event.preventDefault()
-        event.stopPropagation()
+        if (event.shiftKey) {
+          set(`SET_COLORMAP_REVERSED ${layer.key} ${layer.colormapReversed ? 0 : 1}`)
+          return
+        }
+        if (!follows) return
         const bar = barRef.current
         if (!bar) return
-        bar.setPointerCapture(event.pointerId)
-        dragRef.current = { mode, lo, hi, span }
-        const move = (moveEvent) => {
-          const record = dragRef.current
-          if (!record) return
-          const rect = bar.getBoundingClientRect()
-          const fraction = clamp((moveEvent.clientX - rect.left) / Math.max(1, rect.width), 0, 1)
-          const value = record.lo + fraction * record.span
-          if (record.mode === 'lo') {
-            const nextLo = Math.min(value, record.hi - record.span * 1e-4)
-            setSoon(`SET_RANGE ${layer.key} ${nextLo.toFixed(6)} ${record.hi.toFixed(6)}`)
-          } else if (record.mode === 'hi') {
-            const nextHi = Math.max(value, record.lo + record.span * 1e-4)
-            setSoon(`SET_RANGE ${layer.key} ${record.lo.toFixed(6)} ${nextHi.toFixed(6)}`)
-          } else {
-            setSoon(`SET_THRESHOLD ${layer.key} ${Math.abs(value).toFixed(6)}`)
-          }
-        }
-        const up = (upEvent) => {
-          dragRef.current = null
-          bar.removeEventListener('pointermove', move)
-          bar.removeEventListener('pointerup', up)
-          bar.removeEventListener('pointercancel', up)
-          try { bar.releasePointerCapture(upEvent.pointerId) } catch (error) { /* released */ }
-        }
-        bar.addEventListener('pointermove', move)
-        bar.addEventListener('pointerup', up)
-        bar.addEventListener('pointercancel', up)
-        move(event)
+        event.preventDefault()
+        const rect = bar.getBoundingClientRect()
+        const fraction = clampToBar((event.clientX - rect.left) / Math.max(1, rect.width))
+        set(`SET_THRESHOLD ${layer.key} ${Math.abs(lo + fraction * span).toFixed(6)}`)
       }
-      return h('div', { className: 'ffs-colorbar-wrap' },
-        h('div', {
-          className: 'ffs-colorbar', ref: barRef,
-          style: { background: gradient },
-          title: 'Drag the end handles for range; click/drag the bar for threshold',
-          onPointerDown: event => startDrag(event, 'threshold'),
-        },
-          marker != null ? h('span', {
-            className: 'ffs-colorbar-thr', style: { left: `${marker * 100}%` },
-            title: `threshold ${threshold}`,
-            onPointerDown: event => startDrag(event, 'threshold'),
-          }) : null,
-          h('span', {
-            className: 'ffs-colorbar-handle lo', title: `range min ${fmt(lo, 3)}`,
-            onPointerDown: event => startDrag(event, 'lo'),
-          }),
-          h('span', {
-            className: 'ffs-colorbar-handle hi', title: `range max ${fmt(hi, 3)}`,
-            onPointerDown: event => startDrag(event, 'hi'),
-          }),
-        ),
-        h('div', { className: 'ffs-colorbar-labels' },
-          h('span', null, fmt(lo, 2)),
-          h('span', null, fmt(hi, 2)),
-        ),
+      return h('div', {
+        className: `ffs-colorbar-h${follows ? '' : ' disabled'}`,
+        ref: barRef,
+        title: follows
+          ? 'Click to set the threshold; Shift+click reverses the colour scale'
+          : 'Threshold reads another sub-brick, so this bar cannot set it; use the Threshold control below. Shift+click reverses.',
+        onPointerDown: start,
+      },
+        h('canvas', { ref: canvasRef, className: 'ffs-colorbar-canvas', 'aria-hidden': true }),
+        follows ? null : h('span', { className: 'ffs-colorbar-blocked' }, 'threshold on another brick'),
+        lines.map(line => h('span', {
+          key: line.edge, className: 'ffs-colorbar-line v',
+          style: { left: `${line.fraction * 100}%` },
+        })),
       )
     }
 
@@ -3380,9 +3485,16 @@ window.__ModuleLoader__.load({
         if (value > 0) setThresholdMemory(previous => Math.abs(previous - value) < 1e-9 ? previous : value)
       }, [snapshot])
       if (!snapshot) return h('div', { className: 'ffs-rail' }, h('div', { className: 'ffs-hint', style: { padding: 10 } }, 'Loading…'))
+      const surfacesLoaded = (snapshot.surfaces?.loaded || []).length > 0
+      const surfaceSubjectName = snapshot.surfaces?.subject ? snapshot.surfaces.subject.split('/').pop() : null
       const selected = snapshot.layers.find(layer => layer.key === snapshot.selected) || snapshot.layers[snapshot.layers.length - 1]
+      const thresholdFollowsSelected = Boolean(selected) && (
+        selected.thresholdIndex == null || Number(selected.thresholdIndex) === Number(selected.volumeIndex)
+      )
       const thresholdOn = selected ? Math.abs(Number(selected.threshold) || 0) > 1e-9 : false
-      const thresholdMax = selected ? Math.max(0.01, selected.rangeHi != null ? Math.abs(selected.rangeHi) : 10) : 10
+      const thresholdMax = selected
+        ? Math.max(0.01, Number(selected.thresholdScale) || (selected.rangeHi != null ? Math.abs(selected.rangeHi) : 10))
+        : 10
       const brickLabels = selected && Array.isArray(selected.labels) ? selected.labels : []
       const showBricks = Boolean(selected && selected.nVolumes > 1 && (brickLabels.length || selected.nVolumes <= 16))
       const brickLabel = index => brickLabels[index] || `vol ${index}`
@@ -3473,7 +3585,7 @@ window.__ModuleLoader__.load({
               ? layerRows
               : h('div', { className: 'ffs-empty-note' }, 'No datasets loaded. Use Data to add a folder and load a scan.'),
           ),
-          selected ? card('display', 'Display', selected.key,
+          selected ? card('colour', 'Colour', selected.key,
             h('div', { className: 'ffs-selected-head' },
               h('span', { className: 'ffs-swatch', style: { background: colorFor(selected.colormap) } }),
               h('span', {
@@ -3490,6 +3602,69 @@ window.__ModuleLoader__.load({
                 onClick: () => unload(selected),
               }, 'Unload'),
             ),
+            h('div', { className: 'ffs-control' },
+              h('span', { className: 'ffs-control-head' }, h('span', null, 'Colormap')),
+              h('select', {
+                className: 'ffs-select', value: selected.colormap || 'gray',
+                onChange: event => set(`SET_COLORMAP ${selected.key} ${event.target.value}`),
+              }, ['gray', 'hot', 'cool', 'redblue', 'RdBu', 'RdYlBu', 'viridis', 'plasma', 'inferno', 'magma', 'cividis', 'turbo', 'spectrum', 'hsv', 'twilight', 'red', 'twilight_shifted'].map(name => h('option', { key: name, value: name }, name)))),
+            slider('Opacity', fmt(selected.opacity ?? 1, 2), 0, 1, 0.05, `SET_LAYER_OPACITY ${selected.key}`),
+            h('div', { className: 'ffs-control' },
+              h('span', { className: 'ffs-control-head' },
+                h('span', null, 'Range'),
+                h('button', {
+                  type: 'button', className: 'ffs-mini',
+                  title: 'Auto-range this layer from its shown volume or sub-brick',
+                  onClick: () => run('auto_range', { key: selected.key }, null, { quiet: true }).catch(() => {}),
+                }, 'Auto'),
+              ),
+              h('div', { className: 'ffs-rangebar' },
+                h(ColorBar, { layer: selected, run, set, setSoon }),
+                h('div', { className: 'ffs-rangebar-side' },
+                  h(RangeNumber, {
+                    label: 'min', value: selected.rangeLo,
+                    onCommit: value => set(`SET_RANGE ${selected.key} ${value} ${selected.rangeHi ?? 1}`),
+                  }),
+                  h(RangeNumber, {
+                    label: 'max', value: selected.rangeHi,
+                    onCommit: value => set(`SET_RANGE ${selected.key} ${selected.rangeLo ?? 0} ${value}`),
+                  }),
+                ),
+              ),
+              !thresholdFollowsSelected ? h('div', { className: 'ffs-threshold-note' },
+                h('span', null, `Bar selection is off: threshold reads brick ${selected.thresholdIndex}${selected.labels && selected.labels[selected.thresholdIndex] ? ` (${selected.labels[selected.thresholdIndex]})` : ''}.`),
+                h('button', {
+                  type: 'button', className: 'ffs-mini',
+                  title: 'Make the threshold read the displayed brick, so the bar can set it',
+                  onClick: () => set(`SET_THRESHOLD_INDEX ${selected.key} ${selected.volumeIndex ?? 0}`),
+                }, 'Use shown brick'),
+              ) : null,
+              h('div', { className: 'ffs-row', style: { flexWrap: 'wrap', gap: 7 } },
+                h('label', { className: 'ffs-check-row' },
+                  h('input', { type: 'checkbox', checked: selected.rangeMirror, onChange: event => set(`SET_RANGE_MIRROR ${selected.key} ${event.target.checked ? 1 : 0}`) }),
+                  'Mirror',
+                ),
+                h('label', { className: 'ffs-check-row' },
+                  h('input', { type: 'checkbox', checked: selected.rangeFixed, onChange: event => set(`SET_RANGE_FIXED ${selected.key} ${event.target.checked ? 1 : 0}`) }),
+                  'Fixed',
+                ),
+                h('label', { className: 'ffs-check-row' },
+                  h('input', { type: 'checkbox', checked: selected.colormapReversed, onChange: event => set(`SET_COLORMAP_REVERSED ${selected.key} ${event.target.checked ? 1 : 0}`) }),
+                  'Reverse',
+                ),
+              ),
+            ),
+            h('div', { className: 'ffs-control' },
+              h('span', { className: 'ffs-control-head' }, h('span', null, 'Sign')),
+              h('div', { className: 'ffs-seg' },
+                [['both', 'Both'], ['pos', 'Pos'], ['neg', 'Neg']].map(([value, label]) => h('button', {
+                  key: value, type: 'button', className: selected.signMode === value ? 'active' : '',
+                  onClick: () => set(`SET_SIGN ${selected.key} ${value}`),
+                }, label)),
+              ),
+            ),
+          ) : null,
+          selected ? card('overlay', 'Overlay', selected.key,
             showBricks ? h('div', { className: 'ffs-control' },
               h('span', { className: 'ffs-control-head' }, h('span', null, 'OLAY · shown sub-brick')),
               h('select', {
@@ -3518,8 +3693,7 @@ window.__ModuleLoader__.load({
                 }, `Fixed: ${index}: ${brickLabel(index)}`)),
               ),
             ) : null,
-            slider('Opacity', fmt(selected.opacity ?? 1, 2), 0, 1, 0.05, `SET_LAYER_OPACITY ${selected.key}`),
-            h('label', { className: 'ffs-control' },
+            h('div', { className: 'ffs-control' },
               h('span', { className: 'ffs-control-head' },
                 h('span', { className: 'ffs-row', style: { gap: 4 } },
                   h('input', {
@@ -3550,30 +3724,24 @@ window.__ModuleLoader__.load({
               }),
             ),
             h('div', { className: 'ffs-control' },
-              h('span', { className: 'ffs-control-head' }, h('span', null, 'Colormap')),
+              h('span', { className: 'ffs-control-head' }, h('span', null, 'Sub-threshold')),
               h('select', {
-                className: 'ffs-select', value: selected.colormap || 'gray',
-                onChange: event => set(`SET_COLORMAP ${selected.key} ${event.target.value}`),
-              }, ['gray', 'hot', 'cool', 'redblue', 'RdBu', 'RdYlBu', 'viridis', 'plasma', 'inferno', 'magma', 'cividis', 'turbo', 'spectrum', 'hsv', 'twilight', 'red', 'twilight_shifted'].map(name => h('option', { key: name, value: name }, name)))),
-            h('div', { className: 'ffs-control' },
-              h('span', { className: 'ffs-control-head' },
-                h('span', null, 'Range'),
-                h('button', {
-                  type: 'button', className: 'ffs-mini',
-                  title: 'Auto-range this layer from its shown volume or sub-brick',
-                  onClick: () => run('auto_range', { key: selected.key }, null, { quiet: true }).catch(() => {}),
-                }, 'Auto'),
-              ),
-              h(RangeField, { layer: selected, set }),
-              h(ColorBar, { layer: selected, run, set, setSoon }),
+                className: 'ffs-select', value: selected.alphaMode,
+                onChange: event => set(`SET_ALPHA ${selected.key} ${event.target.value}`),
+              }, ['off', 'linear', 'quadratic'].map(value => h('option', { key: value, value }, value))),
             ),
-            h('div', { className: 'ffs-control' },
-              h('span', { className: 'ffs-control-head' }, h('span', null, 'Sign')),
-              h('div', { className: 'ffs-seg' },
-                [['both', 'Both'], ['pos', 'Pos'], ['neg', 'Neg']].map(([value, label]) => h('button', {
-                  key: value, type: 'button', className: selected.signMode === value ? 'active' : '',
-                  onClick: () => set(`SET_SIGN ${selected.key} ${value}`),
-                }, label)),
+            h('div', { className: 'ffs-row', style: { flexWrap: 'wrap', gap: 8 } },
+              h('label', { className: 'ffs-check-row' },
+                h('input', { type: 'checkbox', checked: selected.boxed, onChange: event => set(`SET_BOXED ${selected.key} ${event.target.checked ? 1 : 0}`) }),
+                'Boxed',
+              ),
+              h('label', { className: 'ffs-check-row' },
+                h('input', { type: 'checkbox', checked: selected.edges, onChange: event => set(`SET_EDGES ${selected.key} ${event.target.checked ? 1 : 0}`) }),
+                'Edges',
+              ),
+              h('label', { className: 'ffs-check-row' },
+                h('input', { type: 'checkbox', checked: selected.timeLinked, onChange: event => set(`SET_TIME_LINKED ${selected.key} ${event.target.checked ? 1 : 0}`) }),
+                'Time-linked',
               ),
             ),
             h('button', {
@@ -3587,39 +3755,6 @@ window.__ModuleLoader__.load({
                   className: 'ffs-select', value: selected.resample || 'auto',
                   onChange: event => set(`SET_RESAMPLE ${selected.key} ${event.target.value}`),
                 }, ['auto', 'nearest', 'linear', 'cubic'].map(value => h('option', { key: value, value }, value))),
-              ),
-              h('div', { className: 'ffs-control' },
-                h('span', { className: 'ffs-control-head' }, h('span', null, 'Sub-threshold')),
-                h('select', {
-                  className: 'ffs-select', value: selected.alphaMode,
-                  onChange: event => set(`SET_ALPHA ${selected.key} ${event.target.value}`),
-                }, ['off', 'linear', 'quadratic'].map(value => h('option', { key: value, value }, value))),
-              ),
-              h('label', { className: 'ffs-check-row' },
-                h('input', { type: 'checkbox', checked: selected.boxed, onChange: event => set(`SET_BOXED ${selected.key} ${event.target.checked ? 1 : 0}`) }),
-                'Boxed values',
-              ),
-              h('div', { className: 'ffs-row', style: { flexWrap: 'wrap', gap: 8 } },
-                h('label', { className: 'ffs-check-row' },
-                  h('input', { type: 'checkbox', checked: selected.rangeMirror, onChange: event => set(`SET_RANGE_MIRROR ${selected.key} ${event.target.checked ? 1 : 0}`) }),
-                  'Mirror range',
-                ),
-                h('label', { className: 'ffs-check-row' },
-                  h('input', { type: 'checkbox', checked: selected.rangeFixed, onChange: event => set(`SET_RANGE_FIXED ${selected.key} ${event.target.checked ? 1 : 0}`) }),
-                  'Fixed range',
-                ),
-                h('label', { className: 'ffs-check-row' },
-                  h('input', { type: 'checkbox', checked: selected.colormapReversed, onChange: event => set(`SET_COLORMAP_REVERSED ${selected.key} ${event.target.checked ? 1 : 0}`) }),
-                  'Reverse',
-                ),
-                h('label', { className: 'ffs-check-row' },
-                  h('input', { type: 'checkbox', checked: selected.edges, onChange: event => set(`SET_EDGES ${selected.key} ${event.target.checked ? 1 : 0}`) }),
-                  'Edges',
-                ),
-                h('label', { className: 'ffs-check-row' },
-                  h('input', { type: 'checkbox', checked: selected.timeLinked, onChange: event => set(`SET_TIME_LINKED ${selected.key} ${event.target.checked ? 1 : 0}`) }),
-                  'Time-linked',
-                ),
               ),
               selected.timeLinked && selected.nVolumes > 1 ? h('div', { className: 'ffs-control' },
                 h('span', { className: 'ffs-control-head' }, h('span', null, 'Time view')),
@@ -3695,6 +3830,14 @@ window.__ModuleLoader__.load({
           ),
         ),
         h('div', { className: 'ffs-rail-foot' },
+          snapshot.inspection
+            ? h('button', {
+              type: 'button', className: 'ffs-btn', disabled: busy,
+              title: `Inspection session ${snapshot.inspection.sessionId} · seq ${snapshot.inspection.seq}`,
+              onClick: () => run('inspection_pause', { paused: !snapshot.inspection.paused },
+                snapshot.inspection.paused ? 'recording resumed' : 'recording paused').catch(() => {}),
+            }, snapshot.inspection.paused ? 'Resume rec' : 'Pause rec')
+            : null,
           h('button', {
             type: 'button', className: 'ffs-btn', disabled: busy,
             onClick: () => run('save', { note: 'rail save' }, 'saved').catch(() => {}),
@@ -3821,6 +3964,8 @@ window.__ModuleLoader__.load({
     return {
       name: 'ffs-viewer',
       inject: ['slots', 'locale', 'sidebarRight', 'sidebarRightTabs'],
+      // Exposed for the render smoke; unused by the runtime.
+      __test: { ViewerBody, ControlRail, CommandBar },
       apply(ctx) {
         let t = key => messages[key] || humanize(key)
         ctx.effect(() => {

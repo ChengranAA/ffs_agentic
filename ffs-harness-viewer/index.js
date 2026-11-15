@@ -20,6 +20,9 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
+import { presentationPlan } from '../shared/record/presentation.js'
+import { appendEvent, recordingEnabled } from '../shared/record/store.js'
+
 export const name = 'ffs-viewer'
 
 /** Tools are the only mandatory service; the RPC channel is mounted when Connection exists. */
@@ -224,12 +227,18 @@ function summarize(state) {
 }
 
 /** The one implementation of every viewer operation. */
-class Bridge {
-  constructor(sidecar) {
+export class Bridge {
+  constructor(sidecar, options = {}) {
     this.sidecar = sidecar
     this.opened = null
-    // A crash or explicit restart invalidates the "already opened" cache.
-    sidecar.onExit = () => { this.opened = null }
+    this.options = options
+    this.presentationApplied = false
+    // A crash or explicit restart invalidates the "already opened" cache and presentation
+    // defaults are re-applied to the new session.
+    sidecar.onExit = () => {
+      this.opened = null
+      this.presentationApplied = false
+    }
   }
 
   async ensureOpen() {
@@ -239,7 +248,52 @@ class Bridge {
         this.opened = null
         throw error
       })
-    return this.opened
+    const opened = await this.opened
+    if (this.options.autoApplyPresentation !== false && !this.presentationApplied) {
+      this.presentationApplied = true
+      try {
+        await this.applyPresentation({ actor: { kind: 'system', reason: 'auto-on-open' }, record: true })
+      } catch (error) {
+        console.warn?.('ffs-viewer: could not apply presentation preferences', error)
+      }
+    }
+    return opened
+  }
+
+  /** Apply established presentation preferences; shared by the tool and auto-on-open. */
+  async applyPresentation({ dryRun = false, actor = { kind: 'agent' }, record = true, ensure = false } = {}) {
+    if (ensure && !this.opened) await this.ensureOpen()
+    const profilePath = path.join(PROJECT_ROOT, 'work', 'ffs-record', 'preferences', 'profile.json')
+    if (!existsSync(profilePath)) return { ok: true, applied: [], plan: [], reason: 'no preference profile yet' }
+    let profile = null
+    try { profile = JSON.parse(readFileSync(profilePath, 'utf8')) } catch { profile = null }
+    const plan = presentationPlan(profile)
+    if (dryRun || !plan.length) return { ok: true, dryRun: Boolean(dryRun), plan, applied: [] }
+    const result = await this.sidecar.request('execute_batch', {
+      lines: plan.map((entry) => entry.command),
+      origin: actor.kind === 'system' ? 'system' : 'agent',
+    })
+    if (record && recordingEnabled()) {
+      try {
+        appendEvent(PROJECT_ROOT, 'runs', {
+          type: 'preference.applied',
+          actor,
+          project: { root: '.' },
+          payload: {
+            applied: plan.map((entry) => ({ id: entry.id, version: entry.version, family: entry.family, command: entry.command })),
+            rev: result?.state?.rev ?? null,
+            commands: result?.results?.length ?? 0,
+          },
+        })
+      } catch (error) {
+        console.warn?.('ffs-viewer: could not record preference application', error)
+      }
+    }
+    return {
+      ok: true, dryRun: false, applied: plan,
+      rev: result?.state?.rev ?? null,
+      commandCount: result?.results?.length ?? plan.length,
+    }
   }
 
   async call(endpoint, payload, origin = 'ui') {
@@ -250,6 +304,7 @@ class Bridge {
       'surface', 'surface_pick', 'series', 'save', 'restore', 'open', 'load_paths',
       'sources', 'add_folder', 'remove_folder', 'read_folder', 'add_files',
       'preview', 'clear_preview', 'load_entry', 'add_subject', 'remove_subject',
+      'inspection_state', 'inspection_capture', 'inspection_mark', 'inspection_pause',
     ])
     if (needsData.has(endpoint)) await this.ensureOpen()
     else await this.sidecar.ensure()
@@ -259,6 +314,17 @@ class Bridge {
       params.origin = origin
     }
     switch (endpoint) {
+      case 'inspection_state':
+        return this.sidecar.request('inspection_state', {})
+      case 'inspection_capture':
+        return this.sidecar.request('inspection_capture', { label: params.label }, { timeout: 60000 })
+      case 'inspection_mark':
+        return this.sidecar.request('inspection_mark', {
+          text: params.text, tags: params.tags, kind: params.kind,
+          correctionOf: params.correctionOf, capture: params.capture,
+        }, { timeout: 60000 })
+      case 'inspection_pause':
+        return this.sidecar.request('inspection_pause', { paused: params.paused === true || params.paused === 'true' })
       case 'state':
         return this.sidecar.request('state', {})
       case 'execute':
@@ -424,6 +490,36 @@ function makeTools(bridge, options) {
       },
     },
     {
+      name: 'ffs_viewer_apply_preferences',
+      description: [
+        'Apply established, non-scientific presentation preferences (alpha, colormap) to the',
+        'current viewer state. Scientific preferences are never applied. With dryRun the plan is',
+        'returned without executing. Every application is appended to the record ledger.',
+      ].join('\n'),
+      parameters: {
+        type: 'object',
+        properties: {
+          dryRun: { type: 'boolean', description: 'Return the command plan without executing (default false).' },
+        },
+        required: [],
+      },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => renderText(toolResultText(value)),
+      },
+      async execute(args, exec) {
+        return JSON.stringify(await bridge.applyPresentation({
+          dryRun: Boolean(args?.dryRun),
+          ensure: !args?.dryRun,
+          actor: {
+            kind: 'agent', tool: 'ffs_viewer_apply_preferences',
+            sessionId: exec?.agent?.id || null,
+            agentPath: exec?.agent?.options?.name || exec?.agent?.name || null,
+          },
+        }), null, 1)
+      },
+    },
+    {
       name: 'ffs_viewer_state',
       description: [
         'Read the authoritative FFS viewer state without changing it: crosshair and mm, time',
@@ -556,6 +652,51 @@ function makeTools(bridge, options) {
         const file = path.join(dir, `${result.view}-rev${result.rev}.png`)
         writeFileSync(file, Buffer.from(result.png, 'base64'))
         return JSON.stringify({ ...summary, path: file }, null, 1)
+      },
+    },
+    {
+      name: 'ffs_viewer_inspection',
+      description: [
+        'Record how inspection happens. `state` reports the durable inspection session;',
+        '`capture` returns {sessionId, seq, stateSha256, coordinates, display} for citing in a',
+        'decision; `mark` annotates the current view (optional correctionOf seq); `pause` toggles',
+        'recording. The log lives under the viewer state dir (inspection/<sessionId>.jsonl) and',
+        'survives sidecar restarts.',
+      ].join('\n'),
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['state', 'capture', 'mark', 'pause'], description: 'Default state.' },
+          text: { type: 'string', description: 'Mark text (action=mark).' },
+          tags: { type: 'array', items: { type: 'string' }, description: 'Mark tags.' },
+          kind: { type: 'string', enum: ['mark', 'measure', 'correct'], description: 'Mark kind.' },
+          correctionOf: { type: 'number', description: 'Seq of the mark this corrects.' },
+          capture: { type: 'boolean', description: 'Include the state hash in the mark (default true).' },
+          paused: { type: 'boolean', description: 'Pause/resume recording (action=pause).' },
+          label: { type: 'string', description: 'Optional capture label.' },
+        },
+        required: [],
+      },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => renderText(toolResultText(value)),
+      },
+      async execute(args) {
+        const action = args.action || 'state'
+        if (action === 'capture') {
+          return JSON.stringify(await bridge.call('inspection_capture', { label: args.label }, origin), null, 1)
+        }
+        if (action === 'mark') {
+          if (!String(args.text || '').trim()) throw new Error('mark needs text')
+          return JSON.stringify(await bridge.call('inspection_mark', {
+            text: args.text, tags: args.tags, kind: args.kind,
+            correctionOf: args.correctionOf, capture: args.capture !== false,
+          }, origin), null, 1)
+        }
+        if (action === 'pause') {
+          return JSON.stringify(await bridge.call('inspection_pause', { paused: Boolean(args.paused) }, origin), null, 1)
+        }
+        return JSON.stringify(await bridge.call('inspection_state', {}, origin), null, 1)
       },
     },
     {
@@ -784,7 +925,7 @@ export function apply(ctx, config = {}) {
     || process.env.FFS_VIEWER_PYTHON
     || path.join(projectRoot, '.venv', 'bin', 'python')
   const sidecar = new Sidecar({ python, projectRoot, stateDir })
-  const bridge = new Bridge(sidecar)
+  const bridge = new Bridge(sidecar, { autoApplyPresentation: config.autoApplyPresentation })
   const tools = makeTools(bridge, { stateDir })
 
   for (const tool of tools) {

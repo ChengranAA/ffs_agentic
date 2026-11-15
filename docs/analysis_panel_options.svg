@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="840" viewBox="0 0 1280 840" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+  <defs>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#1f2328" flood-opacity="0.06"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="840" fill="#f6f7f9"/>
+
+  <!-- header -->
+  <g filter="url(#soft)">
+    <rect x="24" y="20" width="1232" height="68" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <text x="48" y="51" font-size="16" font-weight="600" fill="#1f2328">FFS analysis</text>
+  <text x="48" y="72" font-size="11" fill="#6b7280">ds005165 · sub-01 · pipeline v4 · all ffs_autoproc options</text>
+  <rect x="852" y="38" width="188" height="30" rx="15" fill="#eef2ff" stroke="#c7d6ff"/>
+  <circle cx="870" cy="53" r="4" fill="#3b6cf6"/>
+  <text x="882" y="57" font-size="11" fill="#26449c">172 flags · 12 groups · 3 changed</text>
+  <rect x="1122" y="38" width="110" height="30" rx="8" fill="#3b6cf6"/>
+  <text x="1177" y="57" font-size="11.5" fill="#ffffff" text-anchor="middle">Save pipeline</text>
+
+  <!-- rail (dimmed) -->
+  <g filter="url(#soft)">
+    <rect x="24" y="96" width="212" height="716" rx="12" fill="#ffffff" stroke="#e4e6eb"/>
+  </g>
+  <rect x="32" y="118" width="196" height="38" rx="8" fill="#eef2ff"/>
+  <rect x="32" y="124" width="3" height="26" rx="1.5" fill="#3b6cf6"/>
+  <circle cx="54" cy="137" r="5" fill="#3b6cf6"/>
+  <text x="70" y="141" font-size="12.5" font-weight="600" fill="#1f2328">Pipeline</text>
+  <text x="220" y="141" font-size="10.5" fill="#6b7280" text-anchor="end">19</text>
+  <circle cx="54" cy="181" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/><text x="70" y="185" font-size="12.5" fill="#4b5563">Data</text><text x="220" y="185" font-size="10.5" fill="#9aa1ab" text-anchor="end">12</text>
+  <circle cx="54" cy="225" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/><text x="70" y="229" font-size="12.5" fill="#4b5563">QC</text><text x="220" y="229" font-size="10.5" fill="#9aa1ab" text-anchor="end">2</text>
+  <circle cx="54" cy="269" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/><text x="70" y="273" font-size="12.5" fill="#4b5563">Results</text><text x="220" y="273" font-size="10.5" fill="#9aa1ab" text-anchor="end">6</text>
+  <circle cx="54" cy="313" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/><text x="70" y="317" font-size="12.5" fill="#4b5563">Cohort</text><text x="220" y="317" font-size="10.5" fill="#9aa1ab" text-anchor="end">32</text>
+  <circle cx="54" cy="357" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/><text x="70" y="361" font-size="12.5" fill="#4b5563">Group</text><text x="220" y="361" font-size="10.5" fill="#9aa1ab" text-anchor="end">2</text>
+  <circle cx="54" cy="405" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/><text x="70" y="409" font-size="12.5" fill="#4b5563">Provenance</text>
+  <circle cx="54" cy="449" r="5" fill="none" stroke="#9aa1ab" stroke-width="1.5"/><text x="70" y="453" font-size="12.5" fill="#4b5563">Settings</text>
+  <rect x="40" y="486" width="180" height="1" fill="#eceef2"/>
+  <text x="40" y="510" font-size="9.5" fill="#9aa1ab" letter-spacing="1">MODEL SOURCE</text>
+  <text x="40" y="532" font-size="10" fill="#6b7280">from</text>
+  <text x="72" y="532" font-size="9.5" fill="#374151" font-family="SFMono-Regular,Menlo,monospace">build_parser()</text>
+  <text x="40" y="552" font-size="10" fill="#6b7280">ffs</text>
+  <text x="68" y="552" font-size="10" fill="#374151" font-family="SFMono-Regular,Menlo,monospace">8b2f775</text>
+  <text x="40" y="572" font-size="10" fill="#6b7280">schema</text>
+  <text x="92" y="572" font-size="10" fill="#374151">autoproc/1</text>
+
+  <!-- drawer -->
+  <g filter="url(#soft)"><rect x="252" y="96" width="980" height="716" rx="12" fill="#ffffff" stroke="#e4e6eb"/></g>
+  <text x="272" y="124" font-size="15" font-weight="600" fill="#1f2328">All options</text>
+  <text x="356" y="124" font-size="10.5" fill="#9aa1ab">every flag ffs_autoproc accepts — grouped exactly as `--help` groups them</text>
+  <rect x="272" y="136" width="520" height="28" rx="6" fill="#f8f9fb" stroke="#e4e6eb"/>
+  <text x="284" y="155" font-size="10.5" fill="#9aa1ab">search flags and help text…</text>
+  <rect x="804" y="136" width="118" height="28" rx="14" fill="#fdf6e3" stroke="#f0d9a8"/>
+  <circle cx="820" cy="150" r="4" fill="#d98a1f"/><text x="832" y="154" font-size="10" fill="#8a4b08">changed only 3</text>
+  <text x="944" y="154" font-size="10" fill="#3b6cf6">reset all</text>
+  <text x="1212" y="124" font-size="9.5" fill="#9aa1ab" text-anchor="end">read from the installed FFS · cached by source hash</text>
+  <rect x="272" y="176" width="940" height="1" fill="#eceef2"/>
+
+  <!-- group list -->
+  <text x="272" y="200" font-size="9" fill="#9aa1ab" letter-spacing=".8">GROUPS · 12</text>
+  <g font-size="10.5">
+    <text x="272" y="222" fill="#4b5563">Inputs &amp; scope</text><text x="492" y="222" fill="#9aa1ab" text-anchor="end">7</text>
+    <text x="272" y="248" fill="#4b5563">Recipe</text><text x="492" y="248" fill="#9aa1ab" text-anchor="end">1</text>
+    <rect x="264" y="258" width="236" height="28" rx="6" fill="#eef2ff"/>
+    <rect x="264" y="262" width="3" height="20" rx="1.5" fill="#3b6cf6"/>
+    <text x="276" y="277" font-size="10.5" font-weight="600" fill="#1f2328">Anatomical &amp; reference</text><text x="492" y="277" font-size="10.5" fill="#3b6cf6" text-anchor="end">43</text>
+    <text x="272" y="304" fill="#4b5563">NORDIC / phase</text><text x="492" y="304" fill="#9aa1ab" text-anchor="end">24</text>
+    <text x="272" y="330" fill="#4b5563">Slice timing &amp; motion</text><text x="492" y="330" fill="#9aa1ab" text-anchor="end">14</text>
+    <text x="272" y="356" fill="#4b5563">Cross-run / fmap / session</text><text x="492" y="356" fill="#9aa1ab" text-anchor="end">19</text>
+    <text x="272" y="382" fill="#4b5563">GLM</text><text x="492" y="382" fill="#9aa1ab" text-anchor="end">27</text>
+    <text x="272" y="408" fill="#4b5563">QC</text><text x="492" y="408" fill="#9aa1ab" text-anchor="end">1</text>
+    <text x="272" y="434" fill="#4b5563">Batching</text><text x="492" y="434" fill="#9aa1ab" text-anchor="end">1</text>
+    <text x="272" y="460" fill="#4b5563">Compute device</text><text x="492" y="460" fill="#9aa1ab" text-anchor="end">1</text>
+    <text x="272" y="486" fill="#4b5563">Output format</text><text x="492" y="486" fill="#9aa1ab" text-anchor="end">3</text>
+    <text x="272" y="512" fill="#4b5563">Per-stage option overrides</text><text x="492" y="512" fill="#9aa1ab" text-anchor="end">31</text>
+  </g>
+  <rect x="272" y="528" width="220" height="1" fill="#eceef2"/>
+  <text x="272" y="550" font-size="9.5" fill="#6b7280">op strings like</text>
+  <text x="272" y="566" font-size="9.5" fill="#374151" font-family="SFMono-Regular,Menlo,monospace">-moco_opts</text>
+  <text x="272" y="582" font-size="9.5" fill="#374151" font-family="SFMono-Regular,Menlo,monospace">-xrun_nl_opts</text>
+  <text x="272" y="598" font-size="9.5" fill="#374151" font-family="SFMono-Regular,Menlo,monospace">-anat_opts</text>
+  <text x="272" y="620" font-size="9" fill="#9aa1ab">also editable per stage</text>
+  <text x="272" y="634" font-size="9" fill="#9aa1ab">in the stage inspector</text>
+
+  <!-- field panel -->
+  <rect x="508" y="190" width="1" height="450" fill="#eceef2"/>
+  <text x="528" y="212" font-size="13" font-weight="600" fill="#1f2328">Anatomical &amp; reference space</text>
+  <text x="528" y="230" font-size="9.5" fill="#9aa1ab">43 flags · used by stage09, stage09b, stage10 · 2 changed</text>
+
+  <g font-size="10">
+    <text x="528" y="258" fill="#6b7280">Anatomical image</text>
+    <rect x="700" y="244" width="300" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="710" y="260" font-size="9.5" fill="#9aa1ab">auto: T1w from in-scope sessions</text><text x="986" y="260" font-size="8.5" fill="#9aa1ab">▾</text>
+    <text x="1016" y="260" font-size="9" fill="#9aa1ab">reset</text>
+
+    <text x="528" y="292" fill="#6b7280">Skull stripped</text>
+    <rect x="700" y="278" width="110" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="710" y="294" font-size="9.5" fill="#374151">auto</text><text x="796" y="294" font-size="8.5" fill="#9aa1ab">▾</text>
+    <text x="836" y="294" font-size="9" fill="#9aa1ab">auto | yes | no</text>
+
+    <text x="528" y="326" fill="#6b7280">Presurf</text>
+    <rect x="700" y="312" width="110" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="710" y="328" font-size="9.5" fill="#374151">auto</text><text x="796" y="328" font-size="8.5" fill="#9aa1ab">▾</text>
+    <text x="836" y="328" font-size="9" fill="#9aa1ab">auto | no</text>
+
+    <text x="528" y="360" fill="#6b7280">Presurf denoise</text>
+    <rect x="700" y="346" width="110" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="710" y="362" font-size="9.5" fill="#374151">off</text><text x="796" y="362" font-size="8.5" fill="#9aa1ab">▾</text>
+    <text x="836" y="362" font-size="9" fill="#9aa1ab">off | reg | mprage</text>
+
+    <text x="528" y="394" fill="#6b7280">Tissue template (TPM)</text>
+    <rect x="700" y="380" width="300" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="710" y="396" font-size="9.5" fill="#9aa1ab">$FFS_TPM · required for complete</text><text x="986" y="396" font-size="8.5" fill="#9aa1ab">▾</text>
+    <text x="1016" y="396" font-size="9" fill="#9aa1ab">reset</text>
+
+    <text x="528" y="428" fill="#6b7280">SPM tissue template</text>
+    <rect x="700" y="414" width="300" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="710" y="430" font-size="9.5" fill="#9aa1ab">group template → subject priors</text><text x="986" y="430" font-size="8.5" fill="#9aa1ab">▾</text>
+    <text x="1016" y="430" font-size="9" fill="#9aa1ab">reset</text>
+
+    <text x="528" y="462" fill="#6b7280">T2w for segmentation</text>
+    <rect x="700" y="448" width="110" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="710" y="464" font-size="9.5" fill="#374151">auto</text><text x="796" y="464" font-size="8.5" fill="#9aa1ab">▾</text>
+    <text x="836" y="464" font-size="9" fill="#9aa1ab">auto | none | file</text>
+
+    <text x="528" y="496" fill="#6b7280">Nonlinear anat</text>
+    <rect x="700" y="486" width="34" height="18" rx="9" fill="#3b6cf6"/><circle cx="725" cy="495" r="7" fill="#ffffff"/>
+    <text x="744" y="500" font-size="9" fill="#d98a1f">changed</text><text x="792" y="500" font-size="9" fill="#3b6cf6">reset</text>
+
+    <text x="528" y="530" fill="#6b7280">Method</text>
+    <rect x="700" y="516" width="130" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="710" y="532" font-size="9.5" fill="#374151">segment</text><text x="816" y="532" font-size="8.5" fill="#9aa1ab">▾</text>
+    <text x="856" y="532" font-size="9" fill="#9aa1ab">segment | register</text>
+
+    <text x="528" y="564" fill="#6b7280">Reference anat</text>
+    <rect x="700" y="550" width="300" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="710" y="566" font-size="9.5" fill="#9aa1ab">optional: same-scanner anat</text><text x="986" y="566" font-size="8.5" fill="#9aa1ab">▾</text>
+    <text x="1016" y="566" font-size="9" fill="#9aa1ab">reset</text>
+
+    <text x="528" y="598" fill="#6b7280">MNI</text>
+    <rect x="700" y="588" width="34" height="18" rx="9" fill="#3b6cf6"/><circle cx="725" cy="597" r="7" fill="#ffffff"/>
+    <text x="744" y="602" font-size="9" fill="#d98a1f">changed</text><text x="792" y="602" font-size="9" fill="#3b6cf6">reset</text>
+
+    <text x="528" y="632" fill="#6b7280">MNI engine</text>
+    <rect x="700" y="618" width="130" height="24" rx="5" fill="#f8f9fb" stroke="#e4e6eb"/><text x="710" y="634" font-size="9.5" fill="#374151">optiwarp</text><text x="816" y="634" font-size="8.5" fill="#9aa1ab">▾</text>
+    <text x="856" y="634" font-size="9" fill="#9aa1ab">optiwarp | qwarp | formwarp …</text>
+  </g>
+
+  <!-- footer -->
+  <rect x="272" y="660" width="940" height="1" fill="#eceef2"/>
+  <text x="272" y="682" font-size="10" fill="#374151">Every field is one <tspan font-family="SFMono-Regular,Menlo,monospace" font-size="9.5">ffs_autoproc</tspan> flag; the generated command and script use exactly these values.</text>
+  <text x="272" y="700" font-size="9.5" fill="#9aa1ab">Fields you never touch stay absent from the command — autoproc defaults apply, and the recipe's presets are shown in the stage inspector.</text>
+  <text x="272" y="718" font-size="9.5" fill="#9aa1ab">Unmapped flags still live here; the stage board only curates the ones a stage owns.</text>
+  <text x="272" y="742" font-size="9" fill="#9aa1ab">schema: autoproc/1 · FFS ref 8b2f775 (autoproc unchanged) · cached 17:58</text>
+  <rect x="1014" y="744" width="80" height="28" rx="7" fill="#ffffff" stroke="#d5d9e0"/><text x="1054" y="762" font-size="10.5" fill="#374151" text-anchor="middle">Close</text>
+  <rect x="1104" y="744" width="108" height="28" rx="7" fill="#3b6cf6"/><text x="1158" y="762" font-size="10.5" fill="#ffffff" text-anchor="middle">Save v5</text>
+</svg>

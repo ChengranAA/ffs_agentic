@@ -1,5 +1,12 @@
 # Analysis inspection UI
 
+> **Design superseded in part.** The information architecture and composition assumptions of
+> §1–§4 and the UI milestones in §11 are superseded by the pragmatic, deliberately small
+> redesign in [ANALYSIS_PANEL.md](ANALYSIS_PANEL.md) (v0.3, 2026-11-13): the rail stays; the
+> pipeline becomes an autoproc stage board with grouped flag editing, and flexibility is
+> confined to the option drawer, a scratch runner and command steps. This document's verified slot map (§5), transport pattern (§6), component inventory
+> (§7), design system (§9) and tight-viewer interactions (§10) remain the reference.
+
 Status: **draft for review** — the UI half of [WORKFLOW.md](WORKFLOW.md).
 
 **U0–U4 prototype (cohort + group):** [`ffs-analysis-ui/`](../ffs-analysis-ui/) is installed

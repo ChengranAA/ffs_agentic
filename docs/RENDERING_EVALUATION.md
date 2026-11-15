@@ -611,3 +611,13 @@ instead of the global `rev`, compress payloads, and slim the polled snapshot.
 - Texture filtering is nearest by default, as in the original surface window. One volume
   overlay per surface is handled this way; multiple overlays/labels still use the CPU
   colour path.
+
+
+## Colour bar
+
+The rail colour bar mirrors `viewer/ui/colorbar.py` in a horizontal orientation: values
+run min at the left to max at the right through the FFS LUT, sign mode and pane count; sub-threshold values are
+dimmed by the same fade as the alpha ramp; threshold lines are drawn at +threshold and
+-threshold only when the threshold reads the displayed sub-brick. Click/drag sets the
+threshold on the bar and Shift+click reverses the scale. Min/max are edited beside the
+bar and Auto uses FFS AUTORANGE.

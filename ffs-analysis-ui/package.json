@@ -1,6 +1,6 @@
 {
   "name": "@local/ffs-analysis-ui",
-  "version": "0.1.0",
+  "version": "0.1.57",
   "private": true,
   "type": "module",
   "description": "FFS analysis inspection tab for DeepSeek Harness: pipeline, artifacts, QC, results, cohort and group views",
@@ -14,6 +14,7 @@
     "index.js",
     "client.js",
     "cordis.patch.yml",
+    "lib",
     "locale/*.json",
     "docs",
     "icon.svg",

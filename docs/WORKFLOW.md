@@ -130,6 +130,14 @@ Note: the live `JobKind` map currently defines only `bash`, so pipeline jobs sta
 
 Rules: atomic write (temp + rename); every mutation bumps `updatedAt`; the manifest is the **only** inter-plugin state. UI caches may live in `storageDomain`, but a fresh install must be able to rebuild everything from the manifest and files.
 
+**Record-layer extension (implemented R0–R5, [RECORD.md](RECORD.md)).** The manifest remains
+the panel's current-state view, while the append-only record lives beside it:
+`work/ffs-record/{runs,decisions,preferences}/`, `.ffs-viewer/inspection/`, tombstones and
+profile versions. Decisions are mirrored between the manifest and `record/decisions/`; run
+attempts carry actors and outcomes; preferences/scientific judgments follow the user-only
+lifecycle; deletion is tombstoned and recomputed. Exported packages ship the `record/` subtree
+and cited inspection slices, so judgment is as portable as execution.
+
 ### 5.2 Artifact record
 
 ```jsonc
@@ -167,8 +175,8 @@ Rules: atomic write (temp + rename); every mutation bumps `updatedAt`; the manif
 | `ffs_tool_run` | one validated CLI invocation (escape hatch) | provenance record + expected outputs |
 | `ffs_cohort` | validate/normalize the cohort: included subjects, variants, missing outputs | cohort matrix + problems |
 | `ffs_group` | design/run a group analysis; engine and correction chosen per analysis | group artifacts + cluster table |
-| `ffs_settle` | freeze per-subject pipelines + group analyses + chat decisions | settled id, changed fields, checklist |
-| `ffs_export` | build the reproducible cohort package | path, size, validation checklist ([REPRO_PACKAGE.md](REPRO_PACKAGE.md)) |
+| `ffs_settle` | freeze per-subject pipelines + group analyses + decisions; open tentative/undecided decisions require acknowledgement | settled id, decision gate, changed fields, checklist |
+| `ffs_export` | build the reproducible cohort package including the `record/` audit subtree | path, size, record/preferences summary, validation checklist ([REPRO_PACKAGE.md](REPRO_PACKAGE.md)) |
 | `ffs_methods` | render `STEPS.md`/`METHODS.md` (subject + group); lint number provenance | methods text, lint findings |
 | `ffs_export_verify` | re-check an exported package (hashes, dry run) | per-check pass/fail |
 | `ffs_replay` | reproduce a pipeline/artifact | exact command sequence |
