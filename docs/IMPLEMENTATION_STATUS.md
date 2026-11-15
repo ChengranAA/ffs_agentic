@@ -1801,3 +1801,11 @@ active, then moves the project state, pipeline, run, settled package, group stat
 include/decision files into `work/ffs-analysis-clear-<timestamp>/` before refreshing the panel.
 The record ledger (`work/ffs-record`) and exports are not touched, so clearing is reversible.
 The API smoke covers confirmation rejection, backup creation and file removal.
+
+## Clear analysis shows an empty state (analysis 0.1.60)
+
+Clearing previously removed the project files, so `readSnapshot()` fell back to the demo fixture
+and the panel kept showing fixture/demo text. The reset now writes `work/ffs-analysis-cleared.json`;
+while it exists the snapshot is a true empty state (idle pipeline, no project/artifacts/QC/results),
+with a “Analysis cleared” banner and source tag/footer reading `cleared`. Any new project write removes
+the sentinel, and the API smoke asserts the empty snapshot (source, null dataset, zero artifacts).

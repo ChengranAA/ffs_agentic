@@ -340,6 +340,9 @@ window.__ModuleLoader__.load({
 .ffa-qc-actions { display: flex; gap: 6px; margin-top: 6px; }
 .ffa-qc-modal { width: min(560px, 100%); height: auto; max-height: min(90vh, 100%); }
 .ffa-qc-modal-body { display: flex; flex-direction: column; gap: 6px; }
+.ffa-empty-banner { margin: 4px 4px 8px; padding: 10px 12px; border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px; background: var(--dsw-alias-bg-layer-2); font-size: 11px; color: var(--dsw-alias-label-secondary); }
+.ffa-empty-banner strong { color: var(--dsw-alias-label-primary); margin-right: 4px; }
 .ffa-guide { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 8px; background: var(--dsw-alias-bg-layer-2); }
 .ffa-guide-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -2574,7 +2577,7 @@ window.__ModuleLoader__.load({
             method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
               label,
-              clientVersion: '0.1.59',
+              clientVersion: '0.1.60',
               lastClick,
               viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio },
               root: describe(root),
@@ -3103,7 +3106,7 @@ window.__ModuleLoader__.load({
         h('header', { className: 'ffa-head' },
           h('span', { className: 'ffa-brand', title: t('title') }, h(AnalysisIcon, { size: 15 }), t('title')),
           h('span', { className: 'ffa-sub' }, `${snap.project?.dataset || ''} · ${snap.project?.subject || ''}`),
-          h('span', { className: 'ffa-tag' }, snap.source === 'live' ? t('sourceLive') : t('sourceFixture')),
+          h('span', { className: 'ffa-tag' }, snap.source === 'live' ? t('sourceLive') : snap.source === 'empty' ? 'cleared' : t('sourceFixture')),
           h('span', { className: 'ffa-spacer' }),
           h(StatusPill, { status: pipeline.status }),
           runningNow
@@ -3158,6 +3161,11 @@ window.__ModuleLoader__.load({
             className: 'ffa-content', role: 'tabpanel', id: `ffa-panel-${section}`,
             'aria-labelledby': `ffa-tab-${section}`, tabIndex: 0,
           },
+          snap.source === 'empty'
+            ? h('div', { className: 'ffa-empty-banner' },
+              h('strong', null, 'Analysis cleared.'),
+              ' Set a Dataset, choose a recipe, then Generate script. The previous state is backed up under work/ffs-analysis-clear-*.')
+            : null,
           h('div', {
             className: 'ffa-planner-mount', key: snap.project?.workDir || 'default',
             style: section === 'pipeline' ? { display: 'contents' } : { display: 'none' },
@@ -3168,7 +3176,7 @@ window.__ModuleLoader__.load({
           h(SectionBoundary, { key: section }, content))),
         error ? h('div', { className: 'ffa-small', style: { padding: '0 14px 6px', color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
         h('footer', { className: 'ffa-foot' },
-          `${t('prototype')} · client 0.1.59 · ${snap.source === 'live' ? 'live project state' : 'fixtures/demo.json'} · ${snap.project?.device || ''}`),
+          `${t('prototype')} · client 0.1.60 · ${snap.source === 'live' ? 'live project state' : snap.source === 'empty' ? 'cleared · no analysis' : 'fixtures/demo.json'} · ${snap.project?.device || ''}`),
         toast ? h('div', { className: 'ffa-toast', role: 'status' }, toast) : null)
     }
 

@@ -105,6 +105,7 @@ const PROJECT_ROOT = findProjectRoot(PKG_DIR)
 const PROJECT_STATE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-analysis-project.json')
 const RUN_STATE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-analysis-run.json')
 const PIPELINE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-pipeline.json')
+const CLEARED_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-analysis-cleared.json')
 
 /** Cached `ffs_autoproc` CLI model, keyed by the source files' mtime+size. */
 let AUTOPROC_MODEL_CACHE = null
@@ -422,6 +423,7 @@ function readProjectState() {
 function writeProjectState(state) {
   mkdirSync(path.dirname(PROJECT_STATE_FILE), { recursive: true })
   writeFileSync(PROJECT_STATE_FILE, `${JSON.stringify(state, null, 2)}\n`)
+  try { unlinkSync(CLEARED_FILE) } catch { /* already absent */ }
   return state
 }
 
@@ -850,8 +852,50 @@ function resolveFixture() {
   }
 }
 
+function emptySnapshot() {
+  const base = resolveFixture()
+  return {
+    ...base,
+    schema: 'ffs-analysis-snapshot/1',
+    source: 'empty',
+    note: 'No analysis loaded. Set the Dataset and generate a plan.',
+    project: {
+      ...base.project, name: null, dataset: null, root: null, subject: null,
+      session: null, device: null, createdAt: null,
+    },
+    pipeline: {
+      ...base.pipeline, id: null, status: 'idle', recipe: null, script: null, log: null,
+      command: '', statusText: null, elapsedSeconds: 0, progress: 0, currentStage: null,
+      activity: null, finishedAt: null, stages: [], logExcerpt: [],
+    },
+    artifacts: [],
+    qc: { ...base.qc, status: 'not-run', note: '', figures: [] },
+    results: {
+      ...base.results, model: null, meanR2: null, clusters: [], contrasts: [],
+      clusterNote: '', voxelsInMask: 0, subBricks: 0, preview: null,
+    },
+    cohort: { ...base.cohort, total: 0, included: 0, subjects: [], note: '', variants: [] },
+    group: { ...base.group, status: 'not-run', note: '', analyses: [] },
+    provenance: null,
+    surface: null,
+  }
+}
+
+function hasClearBackup() {
+  try {
+    return readdirSync(path.join(PROJECT_ROOT, 'work'))
+      .some((name) => name.startsWith('ffs-analysis-clear-'))
+  } catch {
+    return false
+  }
+}
+
 function readSnapshot() {
+  if (existsSync(CLEARED_FILE)) return emptySnapshot()
   const state = readProjectState()
+  // Older clears removed the state without writing the sentinel; keep them empty instead of
+  // resurrecting the demo fixture.
+  if (!state && hasClearBackup()) return emptySnapshot()
   if (state) {
     try {
       return buildLiveSnapshot(state)
@@ -1409,6 +1453,9 @@ function clearAnalysisState() {
     renameSync(file, target)
     cleared.push(path.relative(PROJECT_ROOT, file))
   }
+  writeFileSync(CLEARED_FILE, `${JSON.stringify({
+    clearedAt: new Date().toISOString(), backup: backupRel, cleared,
+  }, null, 2)}\n`)
   writeFileSync(path.join(backupAbs, 'README.txt'), [
     'Backup of the files cleared by the analysis panel "Clear analysis" action.',
     `clearedAt: ${new Date().toISOString()}`,
