@@ -1390,6 +1390,34 @@ function recordDecision(body = {}) {
   }
 }
 
+function clearAnalysisState() {
+  if (isRunActive()) {
+    throw Object.assign(new Error('cannot clear the analysis while a run is active'), { code: 'run-busy' })
+  }
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
+  const backupRel = `work/ffs-analysis-clear-${stamp}`
+  const backupAbs = path.join(PROJECT_ROOT, backupRel)
+  mkdirSync(backupAbs, { recursive: true })
+  const files = [
+    PROJECT_STATE_FILE, RUN_STATE_FILE, PIPELINE_FILE, SETTLED_FILE,
+    GROUP_STATE_FILE, COHORT_PREFS_FILE, COHORT_DECISIONS_FILE,
+  ]
+  const cleared = []
+  for (const file of files) {
+    if (!existsSync(file)) continue
+    const target = path.join(backupAbs, path.basename(file))
+    renameSync(file, target)
+    cleared.push(path.relative(PROJECT_ROOT, file))
+  }
+  writeFileSync(path.join(backupAbs, 'README.txt'), [
+    'Backup of the files cleared by the analysis panel "Clear analysis" action.',
+    `clearedAt: ${new Date().toISOString()}`,
+    `files: ${cleared.join(', ') || '(none)'}`,
+    'The record ledger (work/ffs-record) was not touched.',
+  ].join('\n') + '\n')
+  return { ok: true, backup: backupRel, cleared }
+}
+
 function commandFileFacts(rel) {
   const abs = resolveInside(rel, 'command script')
   const exists = existsSync(abs)
@@ -4728,7 +4756,8 @@ function projectAssetFile(rel) {
 
 function routeError(res, error) {
   const code = error?.code || 'failed'
-  const status = code === 'run-busy' || code === 'pipeline-invalid' || code === 'command-script-changed' ? 409
+  const status = code === 'confirm-required' ? 400
+    : code === 'run-busy' || code === 'pipeline-invalid' || code === 'command-script-changed' ? 409
     : code === 'decision-invalid' ? 400
       : code === 'decision-constraint' ? 409
       : code === 'constraint-violation' ? 409
@@ -5332,6 +5361,23 @@ export function apply(ctx) {
           mkdirSync(path.dirname(file), { recursive: true })
           writeFileSync(file, `${JSON.stringify({ receivedAt: new Date().toISOString(), ...body }, null, 1)}\n`)
           writeJson(res, 200, { ok: true, file: path.relative(PROJECT_ROOT, file) })
+        } catch (error) {
+          routeError(res, error)
+        }
+        return
+      }
+
+      if (rel === 'reset') {
+        if (req.method !== 'POST') {
+          writeText(res, 405, 'method not allowed')
+          return
+        }
+        try {
+          const body = await readJsonBody(req)
+          if (body?.confirm !== true) {
+            throw Object.assign(new Error('clear requires confirm:true'), { code: 'confirm-required', status: 400 })
+          }
+          writeJson(res, 200, clearAnalysisState())
         } catch (error) {
           routeError(res, error)
         }

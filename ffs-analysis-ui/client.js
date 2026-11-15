@@ -2574,7 +2574,7 @@ window.__ModuleLoader__.load({
             method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
               label,
-              clientVersion: '0.1.58',
+              clientVersion: '0.1.59',
               lastClick,
               viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio },
               root: describe(root),
@@ -2631,12 +2631,37 @@ window.__ModuleLoader__.load({
       const [cohortValidation, setCohortValidation] = useState(null)
       const [recordingDecision, setRecordingDecision] = useState(false)
       const [toast, setToast] = useState(null)
+      const [clearing, setClearing] = useState(false)
 
       useEffect(() => {
         if (!toast) return undefined
         const timer = setTimeout(() => setToast(null), 4200)
         return () => clearTimeout(timer)
       }, [toast])
+
+      const clearAnalysis = useCallback(async () => {
+        const confirmed = window.confirm(
+          'Clear this analysis?\n\nThis removes the project state, pipeline, run and results from the panel.\n' +
+          'Everything is backed up under work/ffs-analysis-clear-* first. The record ledger is not touched.')
+        if (!confirmed) return
+        setClearing(true)
+        try {
+          const res = await fetch('/ffs-analysis/reset', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirm: true }),
+          })
+          const payload = await res.json().catch(() => null)
+          if (!res.ok || !payload || payload.ok !== true) {
+            throw new Error(payload?.error?.message || `clear failed (${res.status})`)
+          }
+          setToast(`analysis cleared · backup ${payload.backup}`)
+          await refresh()
+        } catch (e) {
+          setToast(`clear failed: ${String(e?.message || e)}`)
+        } finally {
+          setClearing(false)
+        }
+      }, [refresh])
 
       const recordDecision = useCallback(async (body) => {
         setRecordingDecision(true)
@@ -3095,6 +3120,11 @@ window.__ModuleLoader__.load({
           runningNow
             ? h('button', { className: 'ffa-btn ffa-btn-danger', onClick: cancelPipeline, disabled: busyRun }, busyRun ? '…' : 'Cancel')
             : null,
+          h('button', {
+            className: 'ffa-btn ffa-btn-danger', onClick: clearAnalysis,
+            disabled: clearing || runningNow,
+            title: runningNow ? 'Cannot clear while a run is active' : 'Clear analysis (backs up state first)',
+          }, clearing ? 'Clearing…' : 'Clear'),
           h('button', { className: 'ffa-btn', onClick: refresh, disabled: refreshing, title: t('refresh') }, refreshing ? '…' : t('refresh')),
           h('button', { className: 'ffa-btn ffa-btn-primary', onClick: openViewer }, t('openViewer'))),
         h('div', { className: 'ffa-main' },
@@ -3138,7 +3168,7 @@ window.__ModuleLoader__.load({
           h(SectionBoundary, { key: section }, content))),
         error ? h('div', { className: 'ffa-small', style: { padding: '0 14px 6px', color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
         h('footer', { className: 'ffa-foot' },
-          `${t('prototype')} · client 0.1.58 · ${snap.source === 'live' ? 'live project state' : 'fixtures/demo.json'} · ${snap.project?.device || ''}`),
+          `${t('prototype')} · client 0.1.59 · ${snap.source === 'live' ? 'live project state' : 'fixtures/demo.json'} · ${snap.project?.device || ''}`),
         toast ? h('div', { className: 'ffa-toast', role: 'status' }, toast) : null)
     }
 

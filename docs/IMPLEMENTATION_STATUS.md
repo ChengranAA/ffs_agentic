@@ -1793,3 +1793,11 @@ Real datasets can now be tested in place:
   and picker show hints.
 - README documents the external-data workflow.
 Tests: pipeline external-input/output separation and absolute browse smoke.
+
+## Clear analysis (analysis 0.1.59)
+
+Added a **Clear** button in the analysis header. It asks for confirmation, refuses while a run is
+active, then moves the project state, pipeline, run, settled package, group state and cohort
+include/decision files into `work/ffs-analysis-clear-<timestamp>/` before refreshing the panel.
+The record ledger (`work/ffs-record`) and exports are not touched, so clearing is reversible.
+The API smoke covers confirmation rejection, backup creation and file removal.
