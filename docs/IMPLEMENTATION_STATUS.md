@@ -1827,3 +1827,12 @@ state as well.
   its tool schema marks them required. No demo dataset is planned by default.
 - Cohort/group fallbacks no longer point at `work/ds005165`.
 - Snapshot tool description now says empty/live, and the README states no demo is loaded by default.
+
+## No bids-lite default anywhere (analysis 0.1.63)
+
+- `scanBids()` requires `bidsDir`; the project-scan tool requires it too and its description no
+  longer mentions the BIDS-lite fixture.
+- Doctor checks no longer require/report a BIDS-lite fixture.
+- `pipelineDetection()` returns an empty detection for a blank BIDS scope instead of scanning the
+  demo, so the cleared/blank planner loads without a `data/bids-lite` value or 500.
+The analysis UI no longer contains any `bids-lite` default.

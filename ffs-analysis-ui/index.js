@@ -972,7 +972,7 @@ function snapshotSummary() {
         : [],
     },
     groupAnalyses: Array.isArray(snapshot.group?.analyses) ? snapshot.group.analyses.length : 0,
-    fixture: FIXTURE_FILE,
+    fixture: snapshot.source === 'fixture' ? FIXTURE_FILE : null,
     state: PROJECT_STATE_FILE,
     runState: RUN_STATE_FILE,
     pipelineFile: path.relative(PROJECT_ROOT, PIPELINE_FILE),
@@ -1266,6 +1266,9 @@ function writePipeline(pipe) {
 }
 
 function pipelineDetection(pipe) {
+  if (!String(pipe.scope?.bidsDir || '').trim()) {
+    return detectionFromScan({ subjects: [] }, pipe.scope?.subject)
+  }
   try {
     const scan = scanBids({ bidsDir: pipe.scope.bidsDir })
     return detectionFromScan(scan, pipe.scope.subject)
@@ -3347,9 +3350,12 @@ function readJsonIf(file) {
 }
 
 function scanBids(params = {}) {
-  const rootAbs = resolveInputPath(params.bidsDir || 'data/bids-lite', 'bidsDir')
+  if (!String(params.bidsDir || '').trim()) {
+    throw Object.assign(new Error('bidsDir is required'), { code: 'bids-invalid' })
+  }
+  const rootAbs = resolveInputPath(params.bidsDir, 'bidsDir')
   if (!existsSync(rootAbs)) {
-    throw Object.assign(new Error(`BIDS directory not found: ${params.bidsDir || 'data/bids-lite'}`), { code: 'bids-invalid' })
+    throw Object.assign(new Error(`BIDS directory not found: ${params.bidsDir}`), { code: 'bids-invalid' })
   }
   const description = readJsonIf(path.join(rootAbs, 'dataset_description.json'))
   const subjects = []
@@ -3475,8 +3481,6 @@ function doctorChecks() {
     const freeGb = (stats.bfree * stats.bsize) / 1e9
     checks.push({ id: 'disk', label: 'free disk', ok: freeGb > 5, detail: `${freeGb.toFixed(1)} GB`, required: true })
   } catch { /* unsupported */ }
-  const fixture = path.join(PROJECT_ROOT, 'data', 'bids-lite')
-  checks.push({ id: 'fixture', label: 'BIDS-lite fixture', ok: existsSync(fixture), detail: path.relative(PROJECT_ROOT, fixture), required: true })
   const required = checks.filter((check) => check.required)
   return { ok: required.every((check) => check.ok), checks }
 }
@@ -5098,14 +5102,14 @@ export function apply(ctx) {
     description: [
       'Scan a BIDS root and the FFS environment: subjects, sessions, runs, events, T1w and',
       'fieldmaps, plus doctor checks (python, fastfuncstuff import, command shims, zstd,',
-      'AFNI/R, MPLCONFIGDIR, disk). Defaults to the BIDS-lite fixture.',
+      'AFNI/R, MPLCONFIGDIR, disk). bidsDir is required; absolute external paths are allowed.',
     ].join('\n'),
     parameters: {
       type: 'object',
       properties: {
-        bidsDir: { type: 'string', description: 'BIDS root, project-relative (default data/bids-lite).' },
+        bidsDir: { type: 'string', description: 'BIDS root; project-relative or an absolute external data path.' },
       },
-      required: [],
+      required: ['bidsDir'],
     },
     output: {
       schema: { type: 'string' },

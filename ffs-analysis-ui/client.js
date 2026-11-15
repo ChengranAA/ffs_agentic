@@ -2577,7 +2577,7 @@ window.__ModuleLoader__.load({
             method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
               label,
-              clientVersion: '0.1.62',
+              clientVersion: '0.1.63',
               lastClick,
               viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio },
               root: describe(root),
@@ -3178,7 +3178,7 @@ window.__ModuleLoader__.load({
           h(SectionBoundary, { key: section }, content))),
         error ? h('div', { className: 'ffa-small', style: { padding: '0 14px 6px', color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
         h('footer', { className: 'ffa-foot' },
-          `${t('prototype')} · client 0.1.62 · ${snap.source === 'live' ? 'live project state' : snap.source === 'empty' ? (snap.cleared ? 'cleared · no analysis' : 'empty · no analysis') : 'fixtures/demo.json'} · ${snap.project?.device || ''}`),
+          `${t('prototype')} · client 0.1.63 · ${snap.source === 'live' ? 'live project state' : snap.source === 'empty' ? (snap.cleared ? 'cleared · no analysis' : 'empty · no analysis') : 'fixtures/demo.json'} · ${snap.project?.device || ''}`),
         toast ? h('div', { className: 'ffa-toast', role: 'status' }, toast) : null)
     }
 
