@@ -313,7 +313,7 @@ function pushValue(args, flag, value, resolvePath, dest, model) {
  * Resolve the exact `ffs_autoproc` argv for a pipeline. `resolvePath` maps a project-relative
  * path to an absolute one (and rejects paths outside the project).
  */
-export function resolvePipelineArgv({ pipeline, model, resolvePath }) {
+export function resolvePipelineArgv({ pipeline, model, resolvePath, resolveOutputPath = resolvePath }) {
   const pipe = normalizePipeline(pipeline)
   const { scope } = pipe
   const errors = []
@@ -346,12 +346,12 @@ export function resolvePipelineArgv({ pipeline, model, resolvePath }) {
   args.push('-subject', scope.subject)
   if (scope.session.length) args.push('-session', ...scope.session)
   if (scope.task.length) args.push('-task', ...scope.task)
-  args.push('-work_dir', resolvePath(scope.workDir, 'workDir'))
+  args.push('-work_dir', resolveOutputPath(scope.workDir, 'workDir'))
   const outRel = scope.out || `${scope.workDir.replace(/\/$/, '')}/proc_sub-${scope.subject}.sh`
   if (scope.out && !/\.sh$/i.test(scope.out)) {
     errors.push({ code: 'scope-out', message: 'output script must end in .sh' })
   }
-  args.push('-out', resolvePath(outRel, 'out'))
+  args.push('-out', resolveOutputPath(outRel, 'out'))
   if (pipe.recipe) args.push('-recipe', pipe.recipe)
   if (errors.length) return { ok: false, errors, args: [], workAbs: null, outAbs: null }
   for (const [dest, value] of Object.entries(pipe.overrides)) {

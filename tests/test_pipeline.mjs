@@ -86,6 +86,24 @@ function basePipeline(overrides = {}) {
   })
 }
 
+test('external input roots are allowed while outputs stay inside the project', () => {
+  const base = basePipeline()
+  const external = normalizePipeline({
+    ...base,
+    scope: { ...base.scope, bidsDir: '/data/real/bids' },
+  })
+  const resolved = resolvePipelineArgv({
+    pipeline: external,
+    model,
+    resolvePath: (rel) => (String(rel).startsWith('/') ? rel : `/project/${rel}`),
+    resolveOutputPath: (rel) => `/project/${String(rel).replace(/^\.\//, '')}`,
+  })
+  assert.equal(resolved.ok, true)
+  assert.equal(resolved.args[resolved.args.indexOf('-bids_dir') + 1], '/data/real/bids')
+  assert.match(resolved.args[resolved.args.indexOf('-work_dir') + 1], /^\/project\//)
+  assert.match(resolved.args[resolved.args.indexOf('-out') + 1], /^\/project\//)
+})
+
 test('optional output script overrides the derived path', () => {
   const base = basePipeline()
   const custom = normalizePipeline({ ...base, scope: { ...base.scope, out: 'work/custom/proc.sh' } })

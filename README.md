@@ -140,6 +140,19 @@ hovering reveals the full path in the footer (double-click loads). Clicking an e
 The `data/demo` fixture and its builder remain for tests and screenshots only; the viewer
 never loads it implicitly.
 
+### Analysis tab on real data
+
+The Analysis tab accepts **absolute read-only input paths** outside this checkout, so real
+BIDS datasets, anatomical/TPM files, FreeSurfer subjects and reference transforms can be used
+in place:
+
+- the **Dataset** field and path flags (All options → e.g. `anat`, `spm_tpm`, `fs_subject`,
+  `suma`, `ref_file`) accept absolute paths;
+- **Browse…** can start in the project but also accepts an absolute directory/path;
+- generated work dirs and scripts stay inside the project, so the reproducibility package
+  remains self-contained;
+- detection (`subjects`, sessions, runs, fieldmaps) scans the external BIDS root.
+
 ## One validated command interface
 
 Every mutation is an FFS command parsed by the original `viewer.commands.parse_line`

@@ -313,7 +313,7 @@ Curated stage→flag map (unmapped flags still appear in All options):
   actions **Generate script** / **Run**.
 - Validation is advisory and explicit: missing `-anat`/TPM for `complete`, no SliceTiming when
   `-slicetiming_method integrate`, `-glm_mask` needing a mask stage, TOML-affecting changes,
-  unknown recipe/flag, path outside the project.
+  unknown recipe/flag, output path outside the project (read-only inputs may be absolute/external).
 - "Generate script" shows the script path and a read-only preview with the header, `OUT`,
   `DEVICE/FMT` and `skip_*` variables; TOML edits are preserved unless `-glm_spec_overwrite`.
 - Run is the existing recipe run: one job, stage banners, cancel, resume; identical to the CLI

@@ -109,6 +109,19 @@ const PIPELINE_FILE = path.join(PROJECT_ROOT, 'work', 'ffs-pipeline.json')
 /** Cached `ffs_autoproc` CLI model, keyed by the source files' mtime+size. */
 let AUTOPROC_MODEL_CACHE = null
 
+function resolveInputPath(rel, label = 'path') {
+  // Read-only inputs (BIDS root, anat, TPM, FreeSurfer subject, references) may live outside
+  // the project so real datasets can be tested in place. Work dirs and scripts stay inside.
+  const text = String(rel || '').trim()
+  if (!text) throw new Error(`${label} is required`)
+  if (path.isAbsolute(text)) {
+    const abs = path.resolve(text)
+    if (!existsSync(abs)) throw new Error(`${label} not found: ${text}`)
+    return abs
+  }
+  return resolveInside(text, label)
+}
+
 function resolveInside(rel, label = 'path') {
   const abs = path.resolve(PROJECT_ROOT, String(rel || ''))
   if (abs !== PROJECT_ROOT && !abs.startsWith(`${PROJECT_ROOT}${path.sep}`)) {
@@ -1430,7 +1443,8 @@ function pipelineView(pipe, { migrated = false } = {}) {
   const resolved = resolvePipelineArgv({
     pipeline: pipe,
     model,
-    resolvePath: (rel, label) => resolveInside(rel, label),
+    resolvePath: (rel, label) => resolveInputPath(rel, label),
+    resolveOutputPath: (rel, label) => resolveInside(rel, label),
   })
   return {
     ok: true,
@@ -1682,7 +1696,7 @@ function planParams(overrides = {}) {
 }
 
 function autoprocArgs(params) {
-  const bidsAbs = resolveInside(params.bidsDir, 'bidsDir')
+  const bidsAbs = resolveInputPath(params.bidsDir, 'bidsDir')
   if (!existsSync(bidsAbs)) throw new Error(`BIDS directory not found: ${params.bidsDir}`)
   const workAbs = resolveInside(params.workDir, 'workDir')
   mkdirSync(workAbs, { recursive: true })
@@ -1699,26 +1713,26 @@ function autoprocArgs(params) {
   if (params.task) args.push('-task', String(params.task))
   if (params.noQc) args.push('-no_qc')
   if (params.device && params.device !== 'auto') args.push('-device', String(params.device))
-  if (params.anat) args.push('-anat', resolveInside(params.anat, 'anat'))
-  if (params.fsSubject) args.push('-fs_subject', resolveInside(params.fsSubject, 'fsSubject'))
+  if (params.anat) args.push('-anat', resolveInputPath(params.anat, 'anat'))
+  if (params.fsSubject) args.push('-fs_subject', resolveInputPath(params.fsSubject, 'fsSubject'))
   const surfaceTargets = Array.isArray(params.surfaceTarget)
     ? params.surfaceTarget
     : (params.surfaceTarget ? String(params.surfaceTarget).split(/[\s,]+/).filter(Boolean) : [])
   if (surfaceTargets.length) {
     args.push('-surface_target')
     for (const target of surfaceTargets) {
-      args.push(target === 'native' || !target.includes('/') ? target : resolveInside(target, 'surface target'))
+      args.push(target === 'native' || !target.includes('/') ? target : resolveInputPath(target, 'surface target'))
     }
   }
   if (params.surfaceGlm) args.push('-surface_glm')
   if (params.surfaceQc) args.push('-surface_qc')
   if (params.surfaceBlur) args.push('-surface_glm_blur', String(params.surfaceBlur))
-  if (params.refFile) args.push('-ref_file', resolveInside(params.refFile, 'refFile'))
-  if (params.refFileAnat) args.push('-ref_file_anat', resolveInside(params.refFileAnat, 'refFileAnat'))
+  if (params.refFile) args.push('-ref_file', resolveInputPath(params.refFile, 'refFile'))
+  if (params.refFileAnat) args.push('-ref_file_anat', resolveInputPath(params.refFileAnat, 'refFileAnat'))
   const transforms = Array.isArray(params.refTransforms)
     ? params.refTransforms
     : (params.refTransforms ? String(params.refTransforms).split(/[\s,]+/).filter(Boolean) : [])
-  if (transforms.length) args.push('-ref_transforms', ...transforms.map((item) => resolveInside(item, 'ref transform')))
+  if (transforms.length) args.push('-ref_transforms', ...transforms.map((item) => resolveInputPath(item, 'ref transform')))
   return { args, bidsAbs, workAbs, outAbs }
 }
 
@@ -3254,7 +3268,7 @@ function readJsonIf(file) {
 }
 
 function scanBids(params = {}) {
-  const rootAbs = resolveInside(params.bidsDir || 'data/bids-lite', 'bidsDir')
+  const rootAbs = resolveInputPath(params.bidsDir || 'data/bids-lite', 'bidsDir')
   if (!existsSync(rootAbs)) {
     throw Object.assign(new Error(`BIDS directory not found: ${params.bidsDir || 'data/bids-lite'}`), { code: 'bids-invalid' })
   }
@@ -5271,7 +5285,9 @@ export function apply(ctx) {
       if (rel === 'browse') {
         try {
           const requested = String(url.searchParams.get('path') || '')
-          const abs = resolveInside(requested || '.', 'browse path')
+          const abs = requested && path.isAbsolute(requested)
+            ? path.resolve(requested)
+            : resolveInside(requested || '.', 'browse path')
           if (!existsSync(abs)) {
             writeJson(res, 404, { ok: false, error: { message: `not found: ${requested || '.'}` } })
             return
@@ -5286,14 +5302,17 @@ export function apply(ctx) {
             .map((entry) => ({
               name: entry.name,
               dir: entry.isDirectory(),
-              path: path.relative(PROJECT_ROOT, path.join(abs, entry.name)),
+              path: requested && path.isAbsolute(requested)
+                ? path.join(abs, entry.name)
+                : path.relative(PROJECT_ROOT, path.join(abs, entry.name)),
             }))
             .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1))
-          const relPath = path.relative(PROJECT_ROOT, abs)
+          const external = Boolean(requested && path.isAbsolute(requested))
+          const relPath = external ? abs : path.relative(PROJECT_ROOT, abs)
           writeJson(res, 200, {
             ok: true,
             path: relPath,
-            parent: relPath && relPath !== '.' ? path.relative(PROJECT_ROOT, path.dirname(abs)) : null,
+            parent: abs !== path.dirname(abs) ? (external ? path.dirname(abs) : path.relative(PROJECT_ROOT, path.dirname(abs))) : null,
             entries,
           })
         } catch (error) {

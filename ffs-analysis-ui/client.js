@@ -679,7 +679,7 @@ window.__ModuleLoader__.load({
       },
         h('div', { className: 'ffa-drawer-head' },
           h('strong', null, 'Choose path'),
-          h('span', { className: 'ffa-small ffa-muted' }, 'project files'),
+          h('span', { className: 'ffa-small ffa-muted' }, 'project or external data (read-only input)'),
           h('span', { className: 'ffa-spacer' }),
           h('button', { type: 'button', className: 'ffa-btn', onClick: onClose }, 'Close')),
         h('div', { className: 'ffa-path-bar' },
@@ -864,6 +864,8 @@ window.__ModuleLoader__.load({
       const rows = [
         ['Dataset', h('input', {
           className: 'ffa-input', value: draft.scope.bidsDir,
+          title: 'BIDS root; absolute paths are allowed for real data (read-only input).',
+          placeholder: 'data/bids or /absolute/path/to/bids',
           onChange: (e) => updateScope('bidsDir', e.target.value),
         })],
         ['Subject', subjectControl],
@@ -2572,7 +2574,7 @@ window.__ModuleLoader__.load({
             method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
               label,
-              clientVersion: '0.1.57',
+              clientVersion: '0.1.58',
               lastClick,
               viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio },
               root: describe(root),
@@ -3136,7 +3138,7 @@ window.__ModuleLoader__.load({
           h(SectionBoundary, { key: section }, content))),
         error ? h('div', { className: 'ffa-small', style: { padding: '0 14px 6px', color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
         h('footer', { className: 'ffa-foot' },
-          `${t('prototype')} · client 0.1.57 · ${snap.source === 'live' ? 'live project state' : 'fixtures/demo.json'} · ${snap.project?.device || ''}`),
+          `${t('prototype')} · client 0.1.58 · ${snap.source === 'live' ? 'live project state' : 'fixtures/demo.json'} · ${snap.project?.device || ''}`),
         toast ? h('div', { className: 'ffa-toast', role: 'status' }, toast) : null)
     }
 

@@ -1781,3 +1781,15 @@ Autoproc changes used by the panel:
   (one/two-sample group tests, 3dttest++). `ffs_group` is not yet wired into the panel's group
   analysis (which still uses 3dMEMA/3dttest++).
 Tests updated for the new totals; full suite passes (16/16).
+
+## External real-data inputs (analysis 0.1.58)
+
+Real datasets can now be tested in place:
+- `resolveInputPath` allows absolute existing paths for BIDS roots and path flags (anat, TPM,
+  FreeSurfer subject, references) in `scanBids`, legacy plan args, and pipeline resolution.
+- Outputs (work dir, script path) still resolve inside the project, keeping packages
+  self-contained.
+- Path picker/browse accepts absolute directories and returns absolute entry paths; Dataset
+  and picker show hints.
+- README documents the external-data workflow.
+Tests: pipeline external-input/output separation and absolute browse smoke.

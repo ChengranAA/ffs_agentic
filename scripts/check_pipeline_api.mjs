@@ -121,6 +121,10 @@ try {
   assert.ok(browse.body.entries.every((entry) => typeof entry.path === 'string' && typeof entry.dir === 'boolean'))
   const outside = await call('GET', 'browse?path=..')
   assert.notEqual(outside.status, 200)
+  const externalBrowse = await call('GET', `browse?path=${encodeURIComponent(path.join(ROOT, 'data/bids-demo'))}`)
+  assert.equal(externalBrowse.status, 200, externalBrowse.text)
+  assert.ok(path.isAbsolute(externalBrowse.body.path))
+  assert.ok(externalBrowse.body.entries.every((entry) => path.isAbsolute(entry.path)))
 
   const diag = await call('POST', 'client-diag', {
     viewport: { width: 420, height: 880 },
